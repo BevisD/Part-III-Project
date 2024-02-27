@@ -16,6 +16,7 @@ USE_CHECKPOINT = True
 SQUARED_PRED = False
 LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-5
+MAX_EPOCHS = 100
 PRETRAINED_PATH = "pretrained_models/swinunetr.pt"
 
 
@@ -53,6 +54,9 @@ def main() -> None:
 
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+
+    # Scheduler
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=MAX_EPOCHS)
 
 
 if __name__ == '__main__':
