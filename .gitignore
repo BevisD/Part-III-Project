@@ -163,3 +163,4 @@ data
 .DS_Store
 jsons/labels.csv
 jsons/data.json
+pretrained_models
