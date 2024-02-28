@@ -72,13 +72,13 @@ class SiamSwinUNETR(nn.Module):
         seg_1, (feat1_1, feat1_2, feat1_3) = self.swin_unetr(img_1)
         seg_2, (feat2_1, feat2_2, feat2_3) = self.swin_unetr(img_2)
 
-        diff_1 = feat1_1 - feat2_1  # B L1 H/? W/? D/?
-        diff_2 = feat1_2 - feat2_2  # B L2 H/? W/? D/?
-        diff_3 = feat1_3 - feat2_3  # B L3 H/? W/? D/?
+        diff_1 = feat1_1 - feat2_1  # B 192 H/8 W/8 D/8
+        diff_2 = feat1_2 - feat2_2  # B 768 H/32 W/32 D/32
+        diff_3 = feat1_3 - feat2_3  # B B 192 H/8 W/8 D/8
 
-        diff_1 = self.conv_1(diff_1)  # B 32 H/? W/? D/?
-        diff_2 = self.conv_2(diff_2)  # B 32 H/? W/? D/?
-        diff_3 = self.conv_3(diff_3)  # B 32 H/? W/? D/?
+        diff_1 = self.conv_1(diff_1)  # B 32 H/8 W/8 D/8
+        diff_2 = self.conv_2(diff_2)  # B 32 H/32 W/32 D/32
+        diff_3 = self.conv_3(diff_3)  # B 32 H/8 W/8 D/8
 
         avg_1 = AdaptiveAvgPool3d((1, 1, 1))(diff_1)  # B 32 1 1 1
         avg_2 = AdaptiveAvgPool3d((1, 1, 1))(diff_2)  # B 32 1 1 1
