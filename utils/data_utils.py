@@ -10,76 +10,84 @@
 # limitations under the License.
 
 import os
+from typing import Sequence
 
 from monai import data
 from monai.data import load_decathlon_datalist
 
 from transforms import compose_train_transform, compose_test_transform
 
+__all__ = ["get_train_loader",
+           "get_test_loader"]
 
-def get_train_loader(args) -> list[data.DataLoader]:
+
+def get_train_loader(data_dir: str,
+                     json_list: str,
+                     batch_size: int,
+                     space: Sequence[float] | float,
+                     roi_size: Sequence[int] | int,
+                     a_min: float,
+                     a_max: float,
+                     b_min: float,
+                     b_max: float,
+                     ) -> list[data.DataLoader]:
     train_transform = compose_train_transform(
-        space=(args.space_x, args.space_y, args.space_z),
-        a_min=args.a_amin,
-        a_max=args.a_max,
-        b_min=args.b_min,
-        b_max=args.b_max,
-        roi_size=(args.roi_x, args.roi_y, args.roi_z),
+        space=space,
+        a_min=a_min,
+        a_max=a_max,
+        b_min=b_min,
+        b_max=b_max,
+        roi_size=roi_size,
     )
     test_transform = compose_test_transform(
-        space=(args.space_x, args.space_y, args.space_z),
-        a_min=args.a_amin,
-        a_max=args.a_max,
-        b_min=args.b_min,
-        b_max=args.b_max,
+        space=space,
+        a_min=a_min,
+        a_max=a_max,
+        b_min=b_min,
+        b_max=b_max,
     )
 
-    data_dir = args.data_dir
-    datalist_json = os.path.join(data_dir, args.json_list)
+    data_dir = data_dir
+    datalist_json = os.path.join(data_dir, json_list)
 
     datalist = load_decathlon_datalist(datalist_json, True, "training", base_dir=data_dir)
-    if args.use_normal_dataset:
-        train_ds = data.Dataset(data=datalist, transform=train_transform)
-    else:
-        train_ds = data.CacheDataset(
-            data=datalist, transform=train_transform, cache_num=24, cache_rate=1.0, num_workers=args.workers
-        )
-
+    train_ds = data.Dataset(data=datalist, transform=train_transform)
     train_loader = data.DataLoader(
-        train_ds,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.workers,
-        pin_memory=True,
+        train_ds, batch_size=batch_size, shuffle=True, pin_memory=True
     )
 
-    test_files = load_decathlon_datalist(datalist_json, True, "validation", base_dir=data_dir)
+    test_files = load_decathlon_datalist(datalist_json, True, "test", base_dir=data_dir)
     test_ds = data.Dataset(data=test_files, transform=test_transform)
     test_loader = data.DataLoader(
-        test_ds, batch_size=1, shuffle=False, num_workers=args.workers, pin_memory=True
+        test_ds, batch_size=1, shuffle=False, pin_memory=True
     )
     return [train_loader, test_loader]
 
 
-def get_test_loader(args):
-    data_dir = args.data_dir
-    datalist_json = os.path.join(data_dir, args.json_list)
+def get_test_loader(data_dir: str,
+                    json_list: str,
+                    space: Sequence[float] | float,
+                    a_min: float,
+                    a_max: float,
+                    b_min: float,
+                    b_max: float):
+    data_dir = data_dir
+    datalist_json = os.path.join(data_dir, json_list)
 
     test_transform = compose_test_transform(
-        space=(args.space_x, args.space_y, args.space_z),
-        a_min=args.a_amin,
-        a_max=args.a_max,
-        b_min=args.b_min,
-        b_max=args.b_max,
+        space=space,
+        a_min=a_min,
+        a_max=a_max,
+        b_min=b_min,
+        b_max=b_max,
     )
 
-    test_files = load_decathlon_datalist(datalist_json, True, "validation", base_dir=data_dir)
+    test_files = load_decathlon_datalist(datalist_json, True, "test", base_dir=data_dir)
     test_ds = data.Dataset(data=test_files, transform=test_transform)
     test_loader = data.DataLoader(
         test_ds,
         batch_size=1,
         shuffle=False,
-        num_workers=args.workers,
         pin_memory=True,
         persistent_workers=True,
     )
