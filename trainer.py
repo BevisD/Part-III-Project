@@ -1,11 +1,11 @@
 import time
 import os
 
-import monai.inferers
 import torch
 import torch.nn as nn
 from torch.cuda.amp import GradScaler, autocast
 from monai.data import DataLoader, decollate_batch
+from tensorboardX import SummaryWriter
 
 
 def train_epoch(model: nn.Module,
@@ -37,9 +37,9 @@ def train_epoch(model: nn.Module,
         mean_batch_loss = loss.item() / batch_size
         epoch_loss += loss.item()
         print(
-            f"Epoch {epoch}/{max_epochs}\t{index}/{len(loader)}\t"
+            f"Batch Loss {epoch}/{max_epochs-1}\t{index}/{len(loader)}\t"
             f"Loss: {mean_batch_loss:.4f}\t"
-            f"Time: {time.time() - start_time:.2f}"
+            f"Time: {time.time() - start_time:.2f}s"
         )
 
         start_time = time.time()
@@ -82,7 +82,7 @@ def test_epoch(model: nn.Module,
             print(
                 f"Epoch {epoch}/{max_epochs}\t{index}/{len(loader)}\t"
                 f"Acc: {mean_batch_acc:.4f}\t"
-                f"Time: {time.time() - start_time:.2f}"
+                f"Time: {time.time() - start_time:.2f}s"
             )
 
             start_time = time.time()
@@ -97,7 +97,6 @@ def save_checkpoint(model: nn.Module,
                     logdir: str = "runs/test",
                     optimizer=None,
                     scheduler=None):
-
     state_dict = model.state_dict()
     save_dict = {"epoch": epoch, "best_acc": best_acc, "state_dict": state_dict}
     if optimizer is not None:
@@ -117,26 +116,36 @@ def run_training(model: nn.Module,
                  loss_func,
                  acc_func,
                  scheduler,
+                 log_dir,
                  max_epochs: int,
                  batch_size: int,
                  val_every: int,
                  model_inferer,
                  start_epoch: int = 0,
                  post_label=None,
-                 post_pred=None
+                 post_pred=None,
                  ) -> None:
-
     best_test_acc = 0.0
     scaler = GradScaler()
+
+    writer = SummaryWriter(log_dir=log_dir)
     for epoch in range(start_epoch, max_epochs):
-        train_epoch(model=model,
-                    loader=train_loader,
-                    loss_func=loss_func,
-                    optimizer=optimizer,
-                    scaler=scaler,
-                    batch_size=batch_size,
-                    epoch=epoch,
-                    max_epochs=max_epochs)
+        epoch_time = time.time()
+
+        train_loss = train_epoch(
+            model=model,
+            loader=train_loader,
+            loss_func=loss_func,
+            optimizer=optimizer,
+            scaler=scaler,
+            batch_size=batch_size,
+            epoch=epoch,
+            max_epochs=max_epochs
+        )
+        print(f"Epoch Loss {epoch}/{max_epochs-1}\t"
+              f"Loss: {train_loss:.4f}\t"
+              f"Time: {time.time()-epoch_time:.2f}s")
+        writer.add_scalar("train_loss",train_loss,epoch)
 
         if (epoch + 1) % val_every == 0:
             test_acc = test_epoch(model=model,
@@ -149,15 +158,17 @@ def run_training(model: nn.Module,
                                   max_epochs=max_epochs)
 
             if test_acc > best_test_acc:
-                print(f"BEST ACCURACY {best_test_acc:.4f} --> {test_acc:.4f}")
+                print(f"New highest accuracy {best_test_acc:.4f} --> {test_acc:.4f}")
                 best_test_acc = test_acc
 
                 save_checkpoint(model, epoch,
                                 best_acc=best_test_acc,
                                 filename="model_best.pt")
 
+        scheduler.step()
+
     save_checkpoint(model,
-                    epoch=max_epochs-1,
+                    epoch=max_epochs - 1,
                     best_acc=best_test_acc,
                     filename="model_final.pt")
     print(f"Training Finished! Best Accuracy: {best_test_acc:.4f}")
