@@ -13,11 +13,10 @@ def train_epoch(model: nn.Module,
                 loss_func,
                 optimizer,
                 scaler,
-                batch_size,
                 epoch,
                 max_epochs) -> float:
     model.train()
-    start_time = time.time()
+    start_time = time.perf_counter()
 
     epoch_loss = 0.0
     for index, batch in enumerate(loader):
@@ -27,64 +26,65 @@ def train_epoch(model: nn.Module,
         with autocast():
             optimizer.zero_grad()
 
-            logits = model(data)
-            loss = loss_func(logits, target)
+            logits = model(data)  # B*P 2 X Y Z
+            loss = loss_func(logits, target)  # 0-dim tensor
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
 
-        mean_batch_loss = loss.item() / batch_size
-        epoch_loss += loss.item()
+        mean_batch_loss = loss.item()
+        epoch_loss += mean_batch_loss
         print(
-            f"Train Batch {epoch}/{max_epochs-1}\t{index}/{len(loader)}\t"
+            f"Train Batch {epoch}/{max_epochs - 1}\t{index}/{len(loader)}\t"
             f"Loss: {mean_batch_loss:.4f}\t"
-            f"Time: {time.time() - start_time:.2f}s"
+            f"Time: {time.perf_counter() - start_time:.2f}s"
         )
 
-        start_time = time.time()
+        start_time = time.perf_counter()
     return epoch_loss / len(loader)
 
 
-def test_epoch(model: nn.Module,
-               loader,
-               model_inferer,
-               acc_func,
-               post_label,
-               post_pred,
-               epoch,
-               max_epochs) -> float:
+def val_epoch(model: nn.Module,
+              loader,
+              model_inferer,
+              acc_func,
+              post_label,
+              post_pred,
+              epoch,
+              max_epochs) -> float:
     model.eval()
-    start_time = time.time()
+    start_time = time.perf_counter()
 
     epoch_acc = 0.0
     with torch.no_grad():
         for index, batch in enumerate(loader):
             data, target = batch["image"], batch["label"]
-            data, target = data.cuda(0), target.cuda(0)
+            data, target = data.cuda(0), target.cuda(0)  # B*P 1 H W D
 
             with autocast():
-                logits = model_inferer(data)
+                logits = model_inferer(data)  # B*P C H W D
 
-            test_labels_list = decollate_batch(target)
-            test_outputs_list = decollate_batch(logits)
+            val_labels_list = decollate_batch(target)  # [C H W D]
+            val_outputs_list = decollate_batch(logits)  # [C H W D]
 
-            test_labels_converted = [post_label(test_label_tensor) for test_label_tensor in test_labels_list]
-            test_output_converted = [post_pred(test_pred_tensor) for test_pred_tensor in test_outputs_list]
+            val_labels_converted = [post_label(val_label_tensor) for val_label_tensor in val_labels_list]
+            val_output_converted = [post_pred(val_pred_tensor) for val_pred_tensor in val_outputs_list]
 
             acc_func.reset()
-            acc_func(y_pred=test_output_converted, y=test_labels_converted)
-            acc = acc_func.aggregate()
+            acc_func(y_pred=val_output_converted, y=val_labels_converted)
+            val_acc, val_not_nan = acc_func.aggregate()
 
-            epoch_acc += acc.item()
+            epoch_acc += val_acc.item()
 
             print(
-                f"Test Batch {epoch}/{max_epochs} {index}/{len(loader)}\t"
-                f"Acc: {acc.item():.4f}\t"
-                f"Time: {time.time() - start_time:.2f}s"
+                f"Validate Batch {epoch}/{max_epochs} {index}/{len(loader)}\t"
+                f"Acc: {val_acc.item():.4f}\t"
+                f"Not NaNs: {int(val_not_nan.item())}\t"
+                f"Time: {time.perf_counter() - start_time:.2f}s"
             )
 
-            start_time = time.time()
+            start_time = time.perf_counter()
 
     return epoch_acc / len(loader)
 
@@ -110,14 +110,13 @@ def save_checkpoint(model: nn.Module,
 
 def run_training(model: nn.Module,
                  train_loader: DataLoader,
-                 test_loader: DataLoader,
+                 val_loader: DataLoader,
                  optimizer: torch.optim.Optimizer,
                  loss_func,
                  acc_func,
                  scheduler,
                  log_dir,
                  max_epochs: int,
-                 batch_size: int,
                  val_every: int,
                  model_inferer,
                  start_epoch: int = 0,
@@ -130,7 +129,7 @@ def run_training(model: nn.Module,
     writer = SummaryWriter(log_dir=log_dir)
     for epoch in range(start_epoch, max_epochs):
         print(time.ctime(), "Epoch:", epoch)
-        epoch_time = time.time()
+        epoch_time = time.perf_counter()
 
         train_loss = train_epoch(
             model=model,
@@ -138,42 +137,42 @@ def run_training(model: nn.Module,
             loss_func=loss_func,
             optimizer=optimizer,
             scaler=scaler,
-            batch_size=batch_size,
             epoch=epoch,
             max_epochs=max_epochs
         )
-        print(f"Train Epoch {epoch}/{max_epochs-1}\t"
+        print(f"Train Epoch {epoch}/{max_epochs - 1}\t"
               f"Mean Loss: {train_loss:.4f}\t"
-              f"Time: {time.time()-epoch_time:.2f}s")
+              f"Time: {time.perf_counter() - epoch_time:.2f}s")
         writer.add_scalar("train_loss", train_loss, epoch)
 
         if (epoch + 1) % val_every == 0:
-            test_acc = test_epoch(model=model,
-                                  loader=test_loader,
-                                  model_inferer=model_inferer,
-                                  acc_func=acc_func,
-                                  post_label=post_label,
-                                  post_pred=post_pred,
-                                  epoch=epoch,
-                                  max_epochs=max_epochs)
+            val_acc = val_epoch(
+                model=model,
+                loader=val_loader,
+                model_inferer=model_inferer,
+                acc_func=acc_func,
+                post_label=post_label,
+                post_pred=post_pred,
+                epoch=epoch,
+                max_epochs=max_epochs
+            )
 
-            print(f"Test Epoch {epoch}/{max_epochs - 1}\t"
-                  f"Mean Acc: {test_acc:.4f}\t"
-                  f"Time: {time.time() - epoch_time:.2f}s")
-            writer.add_scalar("test_acc", test_acc, epoch)
+            print(f"Validate Epoch {epoch}/{max_epochs - 1}\t"
+                  f"Mean Acc: {val_acc:.4f}\t"
+                  f"Time: {time.perf_counter() - epoch_time:.2f}s")
+            writer.add_scalar("val_acc", val_acc, epoch)
 
-            if test_acc > best_test_acc:
-                print(f"New highest accuracy {best_test_acc:.4f} --> {test_acc:.4f}")
-                best_test_acc = test_acc
+            if val_acc > best_test_acc:
+                print(f"New highest accuracy {best_test_acc:.4f} --> {val_acc:.4f}")
+                best_test_acc = val_acc
 
                 save_checkpoint(model, epoch,
                                 best_acc=best_test_acc,
                                 filename="model_best.pt")
 
         scheduler.step()
+        save_checkpoint(model, epoch,
+                        best_acc=best_test_acc,
+                        filename="model_final.pt")
 
-    save_checkpoint(model,
-                    epoch=max_epochs - 1,
-                    best_acc=best_test_acc,
-                    filename="model_final.pt")
     print(f"Training Finished! Best Accuracy: {best_test_acc:.4f}")

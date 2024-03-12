@@ -91,7 +91,7 @@ def main(args) -> None:
     post_pred = post_pred_transform(args.out_channels)
 
     # Metric
-    dice_acc = DiceMetric(include_background=False)
+    dice_acc = DiceMetric(include_background=False, get_not_nans=True)
 
     # Model Inferer for evaluation
     model_inferer = SwinInferer(model, roi_size=args.roi_size)
