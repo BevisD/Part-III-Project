@@ -1,15 +1,29 @@
 import json
 import os
 import sys
-import torch
+from time import perf_counter
 
+import torch
 import numpy as np
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
+from monai import transforms
+from monai.data import load_decathlon_datalist
+from monai import data
 
 from typing import Sequence
 
+__all__ = ["SegmentationDataset",
+           "SegmentationPatchDataset"]
 
-class SegmentationDataLoader:
+
+def mmap_to_normal(arr):
+    normal_arr = np.zeros_like(arr)
+    normal_arr[...] = arr[...]
+    return normal_arr
+
+
+class SegmentationDataset(Dataset):
     def __init__(self, data_dir: str,
                  json_file: str,
                  data_list_key: str,
@@ -32,19 +46,30 @@ class SegmentationDataLoader:
 
     def __getitem__(self, idx):
         # Keep images in disk memory
+        image, label = self.load_mmap(idx)
+
+        normal_image = mmap_to_normal(image)
+        normal_label = mmap_to_normal(label)
+
+        data = {
+            self.image_key: normal_image,
+            self.label_key: normal_label
+        }
+        return data
+
+    def load_mmap(self, idx):
+        # Keep images in disk memory
         image_path = os.path.join(self.data_dir, self.data_list[idx][self.image_key])
         label_path = os.path.join(self.data_dir, self.data_list[idx][self.label_key])
         image = np.load(image_path, mmap_mode="r")
         label = np.load(label_path, mmap_mode="r")
 
-        data = {
-            self.image_key: image,
-            self.label_key: label
-        }
-        return data
+        image = image.reshape((1, *image.shape))
+        label = label.reshape((1, *label.shape))
+        return image, label
 
 
-class SegmentationPatchDataLoader(SegmentationDataLoader):
+class SegmentationPatchDataset(SegmentationDataset):
     def __init__(self, data_dir: str,
                  json_file: str,
                  data_list_key: str,
@@ -59,12 +84,12 @@ class SegmentationPatchDataLoader(SegmentationDataLoader):
                          image_key=image_key,
                          label_key=label_key)
 
-        self.patch_size = patch_size
+        self.patch_size = (patch_size,)*3 if isinstance(patch_size, int) else patch_size
         self.patch_batch_size = patch_batch_size
 
     def __getitem__(self, idx):
-        data = super().__getitem__(idx)
-        image, label = data[self.image_key], data[self.label_key]
+        # Keep images in disk memory
+        image, label = self.load_mmap(idx)
 
         patches = self.get_patches(image, label, num_patches=self.patch_batch_size)
 
@@ -74,8 +99,10 @@ class SegmentationPatchDataLoader(SegmentationDataLoader):
         slices = [None] * 3
 
         patches = []
+        max_lengths = [0, 0, 0]
         for _ in range(num_patches):
-            for i, (image_length, patch_length) in enumerate(zip(image.shape, self.patch_size)):
+            for i, (image_length, patch_length) in enumerate(zip(image.shape[1:], self.patch_size)):
+                max_lengths[i] = max(max_lengths[i], min(image_length, patch_length))
                 if image_length >= patch_length:
                     patch_corner = np.random.randint(0, image_length - patch_length + 1)
                 else:
@@ -83,8 +110,8 @@ class SegmentationPatchDataLoader(SegmentationDataLoader):
 
                 slices[i] = slice(patch_corner, patch_corner + patch_length)
 
-            image_patch = image[*slices]
-            label_patch = label[*slices]
+            image_patch = mmap_to_normal(image[:, *slices])
+            label_patch = mmap_to_normal(label[:, *slices])
 
             patches.append({
                 "image": image_patch,
@@ -95,8 +122,15 @@ class SegmentationPatchDataLoader(SegmentationDataLoader):
 
 
 if __name__ == '__main__':
-    loader = SegmentationDataLoader(
+    dataset = SegmentationPatchDataset(
         data_dir="preprocessed",
         json_file="neov.json",
         data_list_key="training",
+        patch_size=96,
+        patch_batch_size=4
     )
+
+    loader = data.DataLoader(dataset, batch_size=3)
+    for i, batch in enumerate(loader):
+        print(i, batch["image"].shape)
+

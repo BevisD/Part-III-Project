@@ -5,8 +5,9 @@ from monai.networks.nets import SwinUNETR
 from monai.losses import DiceCELoss
 from monai.transforms import AsDiscrete
 from monai.metrics import DiceMetric
+from monai.data import DataLoader
 
-from utils import post_pred_transform, SwinInferer, get_train_loader
+from utils import post_pred_transform, SwinInferer, SegmentationPatchDataset, SegmentationDataset
 from trainer import run_training
 
 parser = argparse.ArgumentParser()
@@ -26,11 +27,12 @@ parser.add_argument("--learning-rate", type=float, default=1e-4)
 parser.add_argument("--weight-decay", type=float, default=1e-5)
 parser.add_argument("--max-epochs", type=int, required=True)
 parser.add_argument("--batch-size", type=int, default=1)
+parser.add_argument("--sw-batch-size", type=int, default=1)
 parser.add_argument("--val-every", type=int, default=4)
 
 # Transform Parameters
-parser.add_argument("--a-min", type=float, default=-1220)
-parser.add_argument("--a-max", type=float, default=3500)
+parser.add_argument("--a-min", type=float, default=-150)
+parser.add_argument("--a-max", type=float, default=250)
 parser.add_argument("--b-min", type=float, default=0)
 parser.add_argument("--b-max", type=float, default=1)
 parser.add_argument("--space-x", type=float, default=1.0)
@@ -62,18 +64,24 @@ def main(args) -> None:
     weights = torch.load(args.pretrained_path)
     model.load_state_dict(weights["state_dict"])
 
-    # Data Loaders
-    train_loader, test_loader = get_train_loader(
+    # Datasets
+    train_dataset = SegmentationPatchDataset(
         data_dir=args.data_dir,
-        json_list=args.json_list,
-        batch_size=args.batch_size,
-        space=(args.space_x, args.space_y, args.space_z),
-        roi_size=args.roi_size,
-        a_min=args.a_min,
-        a_max=args.a_max,
-        b_min=args.b_min,
-        b_max=args.b_max
+        json_file=args.json_file,
+        data_list_key="training",
+        patch_size=args.roi_size,
+        patch_batch_size=args.sw_batch_size
     )
+
+    val_dataset = SegmentationDataset(
+        data_dir=args.data_dir,
+        json_file=args.json_file,
+        data_list_key="validation"
+    )
+
+    # Data loaders
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size)
+    val_loader = DataLoader(val_dataset, batch_size=1)
 
     # Loss
     loss = DiceCELoss(include_background=True, to_onehot_y=True, softmax=True, squared_pred=args.square_pred)
@@ -105,7 +113,7 @@ def main(args) -> None:
     run_training(
         model=model,
         train_loader=train_loader,
-        test_loader=test_loader,
+        test_loader=val_loader,
         optimizer=optimizer,
         loss_func=loss,
         acc_func=dice_acc,

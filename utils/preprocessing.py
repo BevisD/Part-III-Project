@@ -4,6 +4,15 @@ import glob
 import nibabel as nib
 from pathlib import Path
 import matplotlib.pyplot as plt
+from scipy.ndimage import zoom
+
+
+def resample_3d(img, target_size):
+    imx, imy, imz = img.shape
+    tx, ty, tz = target_size
+    zoom_ratio = (float(tx) / float(imx), float(ty) / float(imy), float(tz) / float(imz))
+    img_resampled = zoom(img, zoom_ratio, order=0, prefilter=False)
+    return img_resampled
 
 
 def scale_intensity(data: np.ndarray, a_min: float, a_max: float,
@@ -37,6 +46,8 @@ def main():
     b_min = 0
     b_max = 1
 
+    target_size = (76, 352, 370)
+
     img_folders = [
         "pre_treatment/images",
         "post_treatment/images",
@@ -67,6 +78,8 @@ def main():
 
             img = nib.load(filepath)
             data = img.get_fdata()
+            data = np.transpose(data, axes=(2,1,0))
+            data = resample_3d(data, target_size)
 
             if sub_folder in img_folders:
                 data = scale_intensity(data, a_min, a_max, b_min, b_max, clip=True)
