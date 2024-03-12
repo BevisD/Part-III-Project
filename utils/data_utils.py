@@ -108,8 +108,8 @@ class SegmentationPatchDataset(SegmentationDataset):
             label_patch = mmap_to_normal(label[:, *slices])
 
             patches.append({
-                "image": image_patch,
-                "label": label_patch
+                self.image_key: image_patch,
+                self.label_key: label_patch
             })
 
         return patches
