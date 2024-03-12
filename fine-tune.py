@@ -8,7 +8,7 @@ from monai.metrics import DiceMetric
 from monai.data import DataLoader
 
 from utils import post_pred_transform, SwinInferer, SegmentationPatchDataset, SegmentationDataset
-from trainer import run_training
+from trainer import Trainer
 
 parser = argparse.ArgumentParser()
 # Model Architecture
@@ -48,21 +48,31 @@ parser.add_argument("--pretrained-path", type=str, required=True)
 
 def main(args) -> None:
     torch.random.manual_seed(0)
-    torch.cuda.set_device(0)
-    torch.backends.cudnn.benchmark = True
+    # torch.cuda.set_device(0)
+    # torch.backends.cudnn.benchmark = True
+
+    trainer = Trainer(
+        log_dir=args.log_dir,
+        max_epochs=args.max_epochs,
+        val_every=args.val_every
+    )
 
     # Load model
-    model = SwinUNETR(img_size=args.roi_size,
-                      in_channels=args.in_channels,
-                      out_channels=args.out_channels,
-                      feature_size=args.feature_size,
-                      drop_rate=args.drop_rate,
-                      attn_drop_rate=args.attn_drop_rate,
-                      dropout_path_rate=args.path_drop_rate,
-                      use_checkpoint=args.grad_checkpoint)
+    model = SwinUNETR(
+        img_size=args.roi_size,
+        in_channels=args.in_channels,
+        out_channels=args.out_channels,
+        feature_size=args.feature_size,
+        drop_rate=args.drop_rate,
+        attn_drop_rate=args.attn_drop_rate,
+        dropout_path_rate=args.path_drop_rate,
+        use_checkpoint=args.grad_checkpoint
+    )
 
     weights = torch.load(args.pretrained_path)
     model.load_state_dict(weights["state_dict"])
+    trainer.model = model
+    trainer.start_epoch = weights["start_epoch"]
 
     # Datasets
     train_dataset = SegmentationPatchDataset(
@@ -80,52 +90,42 @@ def main(args) -> None:
     )
 
     # Data loaders
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size)
-    val_loader = DataLoader(val_dataset, batch_size=1)
+    trainer.train_loader = DataLoader(train_dataset, batch_size=args.batch_size)
+    trainer.val_loader = DataLoader(val_dataset, batch_size=1)
 
     # Loss
-    loss = DiceCELoss(include_background=True, to_onehot_y=True, softmax=True, squared_pred=args.square_pred)
+    trainer.loss_func = DiceCELoss(
+        include_background=True,
+        to_onehot_y=True,
+        softmax=True,
+        squared_pred=args.square_pred
+    )
 
     # Output transformations
-    post_label = AsDiscrete(to_onehot=args.out_channels)
-    post_pred = post_pred_transform(args.out_channels)
+    trainer.post_label = AsDiscrete(to_onehot=args.out_channels)
+    trainer.post_pred = post_pred_transform(args.out_channels)
 
     # Metric
-    dice_acc = DiceMetric(include_background=False, get_not_nans=True)
+    trainer.acc_func = DiceMetric(include_background=False, get_not_nans=True)
 
     # Model Inferer for evaluation
-    model_inferer = SwinInferer(model, roi_size=args.roi_size)
+    trainer.model_inferer = SwinInferer(model, roi_size=args.roi_size)
 
     # Print number of parameters
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Total parameters count", pytorch_total_params)
 
-    model.cuda(0)
+    trainer.model.cuda(0)
 
     # Optimizer
-    optimizer = torch.optim.AdamW(model.parameters(),
-                                  lr=args.learning_rate,
-                                  weight_decay=args.weight_decay)
+    trainer.optimizer = torch.optim.AdamW(model.parameters(),
+                                          lr=args.learning_rate,
+                                          weight_decay=args.weight_decay)
 
     # Scheduler
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.max_epochs)
+    trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(trainer.optimizer, T_max=args.max_epochs)
 
-    run_training(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        optimizer=optimizer,
-        loss_func=loss,
-        acc_func=dice_acc,
-        scheduler=scheduler,
-        max_epochs=args.max_epochs,
-        val_every=args.val_every,
-        model_inferer=model_inferer,
-        start_epoch=0,
-        post_label=post_label,
-        post_pred=post_pred,
-        log_dir=args.log_dir
-    )
+    trainer.train()
 
 
 if __name__ == '__main__':

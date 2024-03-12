@@ -20,7 +20,7 @@ class Trainer:
     scheduler: torch.optim.lr_scheduler = None
     log_dir: str = None
     max_epochs: int = 1000
-    val_every: int = None
+    val_every: int = 100
     model_inferer: callable = None
     start_epoch: int = 0
     post_label: callable = None
