@@ -47,12 +47,12 @@ def train_epoch(model: nn.Module,
 
 def val_epoch(model: nn.Module,
               loader,
-              model_inferer,
               acc_func,
               post_label,
               post_pred,
               epoch,
-              max_epochs) -> float:
+              max_epochs,
+              model_inferer=None) -> float:
     model.eval()
     start_time = time.perf_counter()
 
@@ -63,7 +63,10 @@ def val_epoch(model: nn.Module,
             data, target = data.cuda(0), target.cuda(0)  # B*P 1 H W D
 
             with autocast():
-                logits = model_inferer(data)  # B*P C H W D
+                if model_inferer is None:
+                    logits = model(data)
+                else:
+                    logits = model_inferer(data)  # B*P C H W D
 
             val_labels_list = decollate_batch(target)  # [C H W D]
             val_outputs_list = decollate_batch(logits)  # [C H W D]
