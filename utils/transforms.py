@@ -1,7 +1,13 @@
 import torch
 from monai import transforms
-import numpy as np
 from typing import Sequence
+
+__all__ = [
+    "SelectChannelTransformd",
+    "AddChanneld",
+    "compose_test_transform",
+    "compose_train_transform"
+]
 
 
 class SelectChannelTransformd(transforms.MapTransform):
@@ -13,12 +19,12 @@ class SelectChannelTransformd(transforms.MapTransform):
                  channels: Sequence[int] | int,
                  allow_missing_keys=False) -> None:
         super().__init__(keys=keys, allow_missing_keys=allow_missing_keys)
-        self.channels = channels
+        self.channels = torch.Tensor(channels)
 
     def __call__(self, data: dict) -> dict:
         for key in self.keys:
             if key in data:
-                mask = np.isin(data[key], self.channels)
+                mask = torch.isin(data[key], self.channels)
                 data[key] = mask * data[key]
             else:
                 raise ValueError(f"Key '{key}' is not in data")
@@ -64,8 +70,10 @@ def compose_train_transform(space: float | Sequence[float],
     :return: Transformation object for training data
     """
 
-    img_keys = ["pre-image", "post-image"]
-    seg_keys = ["pre-label", "post-label"]
+    # img_keys = ["pre-image", "post-image"]
+    # seg_keys = ["pre-label", "post-label"]
+    img_keys = ["image"]
+    seg_keys = ["label"]
     all_keys = img_keys + seg_keys
 
     transform = transforms.Compose(
@@ -76,24 +84,24 @@ def compose_train_transform(space: float | Sequence[float],
             transforms.Orientationd(keys=all_keys, axcodes="RAS"),
             transforms.Spacingd(keys=all_keys,
                                 pixdim=space,
-                                mode="bilinear"),
+                                mode=("bilinear", "nearest")),
             transforms.ScaleIntensityRanged(
-                keys=["image"], a_min=a_min, a_max=a_max, b_min=b_min, b_max=b_max, clip=True
+                keys=img_keys, a_min=a_min, a_max=a_max, b_min=b_min, b_max=b_max, clip=True
             ),
             # CROP HERE?
             transforms.RandSpatialCropSamplesd(
-                keys=["image", "label"],
+                keys=all_keys,
                 roi_size=roi_size,
                 random_size=False,
                 num_samples=4,
             ),
-            transforms.RandFlipd(keys=["image", "label"], prob=flip_prob, spatial_axis=0),
-            transforms.RandFlipd(keys=["image", "label"], prob=flip_prob, spatial_axis=1),
-            transforms.RandFlipd(keys=["image", "label"], prob=flip_prob, spatial_axis=2),
-            transforms.RandRotate90d(keys=["image", "label"], prob=rotate_prob, max_k=3),
-            transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=intensity_scale_prob),
-            transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=intensity_shift_prob),
-            transforms.ToTensord(keys=["image", "label"]),
+            transforms.RandFlipd(keys=all_keys, prob=flip_prob, spatial_axis=0),
+            transforms.RandFlipd(keys=all_keys, prob=flip_prob, spatial_axis=1),
+            transforms.RandFlipd(keys=all_keys, prob=flip_prob, spatial_axis=2),
+            transforms.RandRotate90d(keys=all_keys, prob=rotate_prob, max_k=3),
+            transforms.RandScaleIntensityd(keys=img_keys, factors=0.1, prob=intensity_scale_prob),
+            transforms.RandShiftIntensityd(keys=img_keys, offsets=0.1, prob=intensity_shift_prob),
+            transforms.ToTensord(keys=all_keys),
         ]
     )
     return transform
@@ -115,8 +123,10 @@ def compose_test_transform(space: Sequence[float] | float,
     :return: Transformation object for test data
     """
 
-    img_keys = ["pre-image", "post-image"]
-    seg_keys = ["pre-label", "post-label"]
+    # img_keys = ["pre-image", "post-image"]
+    # seg_keys = ["pre-label", "post-label"]
+    img_keys = ["image"]
+    seg_keys = ["label"]
     all_keys = img_keys + seg_keys
 
     transform = transforms.Compose(
@@ -127,12 +137,12 @@ def compose_test_transform(space: Sequence[float] | float,
             transforms.Orientationd(keys=all_keys, axcodes="RAS"),
             transforms.Spacingd(keys=all_keys,
                                 pixdim=space,
-                                mode="bilinear"),
+                                mode=("bilinear", "nearest")),
             transforms.ScaleIntensityRanged(
-                keys=["image"], a_min=a_min, a_max=a_max, b_min=b_min, b_max=b_max, clip=True
+                keys=img_keys, a_min=a_min, a_max=a_max, b_min=b_min, b_max=b_max, clip=True
             ),
             # CROP HERE?
-            transforms.ToTensord(keys=["image", "label"]),
+            transforms.ToTensord(keys=all_keys),
         ]
     )
     return transform

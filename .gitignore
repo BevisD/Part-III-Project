@@ -164,3 +164,4 @@ data
 jsons/labels.csv
 jsons/data.json
 pretrained_models
+preprocessed

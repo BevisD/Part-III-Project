@@ -21,8 +21,8 @@ def train_epoch(model: nn.Module,
 
     epoch_loss = 0.0
     for index, batch in enumerate(loader):
-        data, target = batch
-        data, target = data.cuda(), target.cuda()
+        data, target = batch["image"], batch["label"]
+        data, target = data.cuda(0), target.cuda(0)
 
         with autocast():
             optimizer.zero_grad()
@@ -37,7 +37,7 @@ def train_epoch(model: nn.Module,
         mean_batch_loss = loss.item() / batch_size
         epoch_loss += loss.item()
         print(
-            f"Batch Loss {epoch}/{max_epochs-1}\t{index}/{len(loader)}\t"
+            f"Train Batch {epoch}/{max_epochs-1}\t{index}/{len(loader)}\t"
             f"Loss: {mean_batch_loss:.4f}\t"
             f"Time: {time.time() - start_time:.2f}s"
         )
@@ -60,28 +60,27 @@ def test_epoch(model: nn.Module,
     epoch_acc = 0.0
     with torch.no_grad():
         for index, batch in enumerate(loader):
-            data, target = batch
-            data, target = data.cuda(), target.cuda()
+            data, target = batch["image"], batch["label"]
+            data, target = data.cuda(0), target.cuda(0)
 
-            with autocast:
+            with autocast():
                 logits = model_inferer(data)
 
             test_labels_list = decollate_batch(target)
             test_outputs_list = decollate_batch(logits)
 
-            val_labels_converted = [post_label(test_label_tensor) for test_label_tensor in test_labels_list]
-            val_output_converted = [post_pred(test_pred_tensor) for test_pred_tensor in test_outputs_list]
+            test_labels_converted = [post_label(test_label_tensor) for test_label_tensor in test_labels_list]
+            test_output_converted = [post_pred(test_pred_tensor) for test_pred_tensor in test_outputs_list]
 
             acc_func.reset()
-            acc_func(y_pred=val_output_converted, y=val_labels_converted)
-            acc, not_nans = acc_func.aggregate()
+            acc_func(y_pred=test_output_converted, y=test_labels_converted)
+            acc = acc_func.aggregate()
 
-            mean_batch_acc = acc / not_nans
-            epoch_acc += mean_batch_acc
+            epoch_acc += acc.item()
 
             print(
-                f"Epoch {epoch}/{max_epochs}\t{index}/{len(loader)}\t"
-                f"Acc: {mean_batch_acc:.4f}\t"
+                f"Test Batch {epoch}/{max_epochs} {index}/{len(loader)}\t"
+                f"Acc: {acc.item():.4f}\t"
                 f"Time: {time.time() - start_time:.2f}s"
             )
 
@@ -130,6 +129,7 @@ def run_training(model: nn.Module,
 
     writer = SummaryWriter(log_dir=log_dir)
     for epoch in range(start_epoch, max_epochs):
+        print(time.ctime(), "Epoch:", epoch)
         epoch_time = time.time()
 
         train_loss = train_epoch(
@@ -142,10 +142,10 @@ def run_training(model: nn.Module,
             epoch=epoch,
             max_epochs=max_epochs
         )
-        print(f"Epoch Loss {epoch}/{max_epochs-1}\t"
-              f"Loss: {train_loss:.4f}\t"
+        print(f"Train Epoch {epoch}/{max_epochs-1}\t"
+              f"Mean Loss: {train_loss:.4f}\t"
               f"Time: {time.time()-epoch_time:.2f}s")
-        writer.add_scalar("train_loss",train_loss,epoch)
+        writer.add_scalar("train_loss", train_loss, epoch)
 
         if (epoch + 1) % val_every == 0:
             test_acc = test_epoch(model=model,
@@ -156,6 +156,11 @@ def run_training(model: nn.Module,
                                   post_pred=post_pred,
                                   epoch=epoch,
                                   max_epochs=max_epochs)
+
+            print(f"Test Epoch {epoch}/{max_epochs - 1}\t"
+                  f"Mean Acc: {test_acc:.4f}\t"
+                  f"Time: {time.time() - epoch_time:.2f}s")
+            writer.add_scalar("test_acc", test_acc, epoch)
 
             if test_acc > best_test_acc:
                 print(f"New highest accuracy {best_test_acc:.4f} --> {test_acc:.4f}")

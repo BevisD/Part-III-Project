@@ -11,66 +11,43 @@ from trainer import run_training
 
 parser = argparse.ArgumentParser()
 # Model Architecture
-parser.add_argument("roi-size", type=int, default=96)
-parser.add_argument("in-channels", type=int, default=1)
-parser.add_argument("out-channels", type=int, default=2)
-parser.add_argument("feature-size", type=int, default=48)
+parser.add_argument("--roi-size", type=int, default=96)
+parser.add_argument("--in-channels", type=int, default=1)
+parser.add_argument("--out-channels", type=int, default=2)
+parser.add_argument("--feature-size", type=int, default=48)
 
 # Training Hyperparameters
-parser.add_argument("drop-rate", type=float, default=0.0)
-parser.add_argument("attn-drop-rate", type=float, default=0.0)
-parser.add_argument("path-drop-rate", type=float, default=0.0)
-parser.add_argument("grad-checkpoint", action="store_true")
-parser.add_argument("square-pred", action="store_true")
-parser.add_argument("learning-rate", type=float, default=1e-4)
-parser.add_argument("weight-decay", type=float, default=1e-5)
-parser.add_argument("max-epochs", type=int, required=True)
-parser.add_argument("batch-size", type=int, default=1)
-parser.add_argument("val-every", type=int, default=4)
+parser.add_argument("--drop-rate", type=float, default=0.0)
+parser.add_argument("--attn-drop-rate", type=float, default=0.0)
+parser.add_argument("--path-drop-rate", type=float, default=0.0)
+parser.add_argument("--grad-checkpoint", action="store_true")
+parser.add_argument("--square-pred", action="store_true")
+parser.add_argument("--learning-rate", type=float, default=1e-4)
+parser.add_argument("--weight-decay", type=float, default=1e-5)
+parser.add_argument("--max-epochs", type=int, required=True)
+parser.add_argument("--batch-size", type=int, default=1)
+parser.add_argument("--val-every", type=int, default=4)
 
 # Transform Parameters
-parser.add_argument("a-min", type=float, default=-1220)
-parser.add_argument("a-max", type=float, default=3500)
-parser.add_argument("b-min", type=float, default=0)
-parser.add_argument("b-max", type=float, default=1)
-parser.add_argument("b-max", type=float, default=1)
-parser.add_argument("space-x", type=float, default=1.0)
-parser.add_argument("space-y", type=float, default=1.0)
-parser.add_argument("space-z", type=float, default=1.0)
+parser.add_argument("--a-min", type=float, default=-1220)
+parser.add_argument("--a-max", type=float, default=3500)
+parser.add_argument("--b-min", type=float, default=0)
+parser.add_argument("--b-max", type=float, default=1)
+parser.add_argument("--space-x", type=float, default=1.0)
+parser.add_argument("--space-y", type=float, default=1.0)
+parser.add_argument("--space-z", type=float, default=1.0)
 
 # Paths
-parser.add_argument("data-dir", type=str, required=True)
-parser.add_argument("json-list", type=str, required=True)
-parser.add_argument("log-dir", type=str, required=True)
-parser.add_argument("pretrained-path", type=str, required=True)
-
-roi_size = 96
-IN_CHANNELS = 1
-OUT_CHANNELS = 2
-FEATURE_SIZE = 48
-DROP_RATE = 0.2
-ATTN_DROP_RATE = 0.0
-DROPOUT_PATH_RATE = 0.0
-USE_CHECKPOINT = True
-SQUARED_PRED = False
-LEARNING_RATE = 1e-4
-WEIGHT_DECAY = 1e-5
-MAX_EPOCHS = 2
-BATCH_SIZE = 4
-VAL_EVERY = 1
-A_MIN = -1220
-A_MAX = 3500
-B_MIN = 0
-B_MAX = 1
-PIXDIM = (1.0, 1.0, 1.0)
-DATA_DIR = "/bask/projects/p/phwq4930-gbm/Ines/Ovarian/Data/NeOv"
-JSON_LIST = "neov-seg.json"
-LOG_DIR = ""
-PRETRAINED_PATH = "pretrained_models/swinunetr.pt"
+parser.add_argument("--data-dir", type=str, required=True)
+parser.add_argument("--json-list", type=str, required=True)
+parser.add_argument("--log-dir", type=str, required=True)
+parser.add_argument("--pretrained-path", type=str, required=True)
 
 
 def main(args) -> None:
     torch.random.manual_seed(0)
+    torch.cuda.set_device(0)
+    torch.backends.cudnn.benchmark = True
 
     # Load model
     model = SwinUNETR(img_size=args.roi_size,
@@ -99,14 +76,14 @@ def main(args) -> None:
     )
 
     # Loss
-    loss = DiceCELoss(include_background=True, to_onehot_y=True, softmax=True, squared_pred=args.squared_pred)
+    loss = DiceCELoss(include_background=True, to_onehot_y=True, softmax=True, squared_pred=args.square_pred)
 
     # Output transformations
     post_label = AsDiscrete(to_onehot=args.out_channels)
     post_pred = post_pred_transform(args.out_channels)
 
     # Metric
-    dice_acc = DiceMetric(include_background=True, get_not_nans=True)
+    dice_acc = DiceMetric(include_background=False)
 
     # Model Inferer for evaluation
     model_inferer = SwinInferer(model, roi_size=args.roi_size)
@@ -114,6 +91,8 @@ def main(args) -> None:
     # Print number of parameters
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Total parameters count", pytorch_total_params)
+
+    model.cuda(0)
 
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(),

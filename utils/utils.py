@@ -8,9 +8,11 @@ from monai.networks.nets import SwinUNETR
 __all__ = ["post_pred_transform", "SwinInferer"]
 
 
-def post_pred_transform(num_classes: int, dim=1) -> callable:
+def post_pred_transform(num_classes: int, dim=0) -> callable:
     def _wrapper(x):
-        return AsDiscrete(to_onehot=num_classes)(argmax(x, dim=dim))
+        x = argmax(x, dim=dim, keepdim=True)
+        x = AsDiscrete(to_onehot=num_classes)(x)
+        return x
     return _wrapper
 
 

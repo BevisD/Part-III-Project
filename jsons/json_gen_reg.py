@@ -16,6 +16,7 @@ def parse_args():
     parser.add_argument("--shuffle", action="store_true", help="shuffle the data or not")
     parser.add_argument("--num-train", type=int, help="number of training datapoints", required=True)
     parser.add_argument("--num-test", type=int, help="number of testing datapoints", required=True)
+    parser.add_argument("--num-val", type=int, help="number of validation datapoints")
     parser.add_argument("--data-name", default="neov", help="name of the dataset")
     parser.add_argument("--pre-dir", default="pre_treatment_reg_resampl", type=str)
     parser.add_argument("--post-dir", default="post_treatment", type=str)
@@ -51,11 +52,11 @@ def main(args):
 
             # Assumes there are pre_treatment and post_treatment folders
             # Each folder has images and segmentations
-            pre_img_path = os.path.join(args["pre_dir"], args["image_dir"], f"pid_{str(pid).rjust(3,'0')}")
-            pre_seg_path = os.path.join(args["pre_dir"], args["label_dir"], f"pid_{str(pid).rjust(3,'0')}")
+            pre_img_path = os.path.join(args["pre_dir"], args["image_dir"], f"pid_{str(pid).rjust(3,'0')}.nii.gz")
+            pre_seg_path = os.path.join(args["pre_dir"], args["label_dir"], f"pid_{str(pid).rjust(3,'0')}.nii.gz")
 
-            post_img_path = os.path.join(args["post_dir"], args["image_dir"], f"pid_{str(pid).rjust(3,'0')}")
-            post_seg_path = os.path.join(args["post_dir"], args["label_dir"], f"pid_{str(pid).rjust(3,'0')}")
+            post_img_path = os.path.join(args["post_dir"], args["image_dir"], f"pid_{str(pid).rjust(3,'0')}.nii.gz")
+            post_seg_path = os.path.join(args["post_dir"], args["label_dir"], f"pid_{str(pid).rjust(3,'0')}.nii.gz")
 
             pre_img_seg_pairs.append((pre_img_path, pre_seg_path))
             post_img_seg_pairs.append((post_img_path, post_seg_path))
@@ -65,9 +66,14 @@ def main(args):
         random.seed(0)
         random.shuffle(img_seg_pairs)
 
+    if "num_val" in args:
+        val_num = args["num_val"]
+    else:
+        val_num = len(img_seg_pairs) - train_num - test_num
+
     train_pairs = img_seg_pairs[:train_num]
     test_pairs = img_seg_pairs[train_num:train_num + test_num]
-    val_pairs = img_seg_pairs[train_num + test_num:]
+    val_pairs = img_seg_pairs[train_num + test_num:train_num + test_num + val_num]
 
     json_dict["numTrain"] = len(train_pairs)
     json_dict["numTest"] = len(test_pairs)

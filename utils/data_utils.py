@@ -2,7 +2,7 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-#     http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,7 +15,7 @@ from typing import Sequence
 from monai import data
 from monai.data import load_decathlon_datalist
 
-from transforms import compose_train_transform, compose_test_transform
+from .transforms import compose_train_transform, compose_test_transform
 
 __all__ = ["get_train_loader",
            "get_test_loader"]
@@ -51,7 +51,10 @@ def get_train_loader(data_dir: str,
     datalist_json = os.path.join(data_dir, json_list)
 
     datalist = load_decathlon_datalist(datalist_json, True, "training", base_dir=data_dir)
-    train_ds = data.Dataset(data=datalist, transform=train_transform)
+    # train_ds = data.Dataset(data=datalist, transform=train_transform)
+    train_ds = data.CacheDataset(
+        data=datalist, transform=train_transform, cache_num=24, cache_rate=1.0, num_workers=None
+    )
     train_loader = data.DataLoader(
         train_ds, batch_size=batch_size, shuffle=True, pin_memory=True
     )
