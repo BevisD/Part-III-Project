@@ -161,7 +161,7 @@ cython_debug/
 
 data
 .DS_Store
-jsons/labels.csv
-jsons/data.json
+jsons/*.csv
+jsons/*.json
 pretrained_models
 preprocessed
