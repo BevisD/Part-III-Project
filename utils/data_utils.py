@@ -93,10 +93,8 @@ class SegmentationPatchDataset(SegmentationDataset):
         slices = [None] * 3
 
         patches = []
-        max_lengths = [0, 0, 0]
         for _ in range(num_patches):
             for i, (image_length, patch_length) in enumerate(zip(image.shape[1:], self.patch_size)):
-                max_lengths[i] = max(max_lengths[i], min(image_length, patch_length))
                 if image_length >= patch_length:
                     patch_corner = np.random.randint(0, image_length - patch_length + 1)
                 else:
