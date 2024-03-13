@@ -3,7 +3,6 @@ import os
 
 import numpy as np
 from torch.utils.data import Dataset
-from monai import data
 
 from typing import Sequence
 
@@ -114,15 +113,24 @@ class SegmentationPatchDataset(SegmentationDataset):
 
 
 if __name__ == '__main__':
-    dataset = SegmentationPatchDataset(
-        data_dir="preprocessed",
-        json_file="neov.json",
-        data_list_key="training",
-        patch_size=96,
-        patch_batch_size=4
-    )
+    import sys
+    import time
+    from monai.transforms import LoadImaged, Compose, ToTensord
 
-    loader = data.DataLoader(dataset, batch_size=3)
-    for i, batch in enumerate(loader):
-        print(i, batch["image"].shape)
+    data = {
+        "image": "data/NeOv_rigid_sample/pre_treatment/images/pid_038.nii.gz",
+    }
+
+    transform = Compose(
+        [
+            LoadImaged(keys=["image"]),
+            ToTensord(keys=["image"])
+        ]
+    )
+    t_1 = time.perf_counter()
+    data = transform(data)
+    t_2 = time.perf_counter()
+
+    print(f"Time: {t_2 - t_1}")
+    print(f"Mem: {sys.getsizeof(data)}B")
 
