@@ -3,14 +3,45 @@ import os
 import glob
 import nibabel as nib
 from pathlib import Path
-import matplotlib.pyplot as plt
 from scipy.ndimage import zoom
+import argparse
+import warnings
+
+parser = argparse.ArgumentParser(description="Preprocessing tool to convert from .nii.gz to .npy")
+
+# Intensity Scaling
+parser.add_argument("--a-min", default=-150.0, type=float)
+parser.add_argument("--a-max", default=250.0, type=float)
+parser.add_argument("--b-min", default=0.0, type=float)
+parser.add_argument("--b-max", default=1.0, type=float)
+parser.add_argument("--no_clip", action="store_true")
+
+# Image Shape
+parser.add_argument("--size-x", default=None, type=int)
+parser.add_argument("--size-y", default=None, type=int)
+parser.add_argument("--size-z", default=None, type=int)
+parser.add_argument("--axes-order", default=None, type=str)
+
+# Paths
+parser.add_argument("--pre-dir", default="pre_treatment", type=str)
+parser.add_argument("--post-dir", default="post_treatment", type=str)
+parser.add_argument("--image-dir", default="images", type=str)
+parser.add_argument("--label-dir", default="labels", type=str)
+parser.add_argument("--data-dir", default="data", type=str)
+parser.add_argument("--output-dir", default="preprocessed", type=str)
+parser.add_argument("--file-extension", default=".nii.gz", type=str)
 
 
 def resample_3d(img, target_size):
-    imx, imy, imz = img.shape
-    tx, ty, tz = target_size
-    zoom_ratio = (float(tx) / float(imx), float(ty) / float(imy), float(tz) / float(imz))
+    for t in target_size:
+        if t is None:
+            continue
+
+        if t <= 0:
+            raise ValueError("Can't scale to non-positive dimension")
+
+    zoom_ratio = [float(t) / float(im) if t is not None else 1
+                  for im, t in zip(img.shape, target_size)]
     img_resampled = zoom(img, zoom_ratio, order=0, prefilter=False)
     return img_resampled
 
@@ -37,40 +68,32 @@ def select_channels(data: np.ndarray, channels: list):
     return data * mask
 
 
-def main():
-    data_dir = "data/NeOv_rigid_sample"
-    preprocessed_dir = "preprocessed"
+def main(args):
+    target_size = (args.size_x, args.size_y, args.size_z)
 
-    a_min = -150
-    a_max = 250
-    b_min = 0
-    b_max = 1
-
-    target_size = (76, 352, 370)
+    ornt = None
+    if args.axes_order is not None:
+        ornt = nib.orientations.axcodes2ornt(args.axes_order)
+        if any([s is not None for s in target_size]):
+            warnings.warn(f"Applying orientation {args.axes_order} before dimension scaling")
 
     img_folders = [
-        "pre_treatment/images",
-        "post_treatment/images",
+        os.path.join(args.pre_dir, args.image_dir),
+        os.path.join(args.post_dir, args.image_dir),
     ]
 
     seg_folders = [
-        "pre_treatment/labels",
-        "post_treatment/labels",
+        os.path.join(args.pre_dir, args.label_dir),
+        os.path.join(args.post_dir, args.label_dir),
     ]
 
     sub_folders = img_folders + seg_folders
 
-    if not os.path.exists(preprocessed_dir):
-        print("Creating Preprocessing Folders")
-        os.mkdir(preprocessed_dir)
-        os.mkdir(os.path.join(preprocessed_dir, "pre_treatment"))
-        os.mkdir(os.path.join(preprocessed_dir, "post_treatment"))
-
-        for sub_folder in sub_folders:
-            os.mkdir(os.path.join(preprocessed_dir, sub_folder))
+    for sub_folder in sub_folders:
+        os.makedirs(os.path.join(args.output_dir, sub_folder), exist_ok=True)
 
     for sub_folder in sub_folders:
-        filepaths = glob.glob(os.path.join(data_dir, sub_folder, "*.nii.gz"))
+        filepaths = glob.glob(os.path.join(args.data_dir, sub_folder, f"*{args.file_extension}"))
 
         for filepath in filepaths:
             print(f"Preprocessing {filepath}")
@@ -78,15 +101,19 @@ def main():
 
             img = nib.load(filepath)
             data = img.get_fdata()
-            data = np.transpose(data, axes=(2,1,0))
+            if ornt is not None:
+                data = nib.apply_orientation(data, ornt)
+
             data = resample_3d(data, target_size)
 
             if sub_folder in img_folders:
-                data = scale_intensity(data, a_min, a_max, b_min, b_max, clip=True)
+                data = scale_intensity(data, args.a_min, args.a_max,
+                                       args.b_min, args.b_max, clip=not args.no_clip)
             elif sub_folder in seg_folders:
                 data = select_channels(data, channels=[1])
-            np.save(os.path.join(preprocessed_dir, sub_folder, filename), data)
+            np.save(os.path.join(args.output_dir, sub_folder, filename), data)
 
 
 if __name__ == '__main__':
-    main()
+    args = parser.parse_args()
+    main(args)

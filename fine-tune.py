@@ -16,6 +16,7 @@ parser.add_argument("--roi-size", type=int, default=96)
 parser.add_argument("--in-channels", type=int, default=1)
 parser.add_argument("--out-channels", type=int, default=2)
 parser.add_argument("--feature-size", type=int, default=48)
+parser.add_argument("--load-checkpoint", action="store_true")
 
 # Training Hyperparameters
 parser.add_argument("--drop-rate", type=float, default=0.0)
@@ -48,8 +49,8 @@ parser.add_argument("--pretrained-path", type=str, required=True)
 
 def main(args) -> None:
     torch.random.manual_seed(0)
-    # torch.cuda.set_device(0)
-    # torch.backends.cudnn.benchmark = True
+    torch.cuda.set_device(0)
+    torch.backends.cudnn.benchmark = True
 
     trainer = Trainer(
         log_dir=args.log_dir,
