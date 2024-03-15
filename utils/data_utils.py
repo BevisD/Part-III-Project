@@ -1,13 +1,16 @@
 import json
 import os
 
+import monai.transforms
 import numpy as np
 from torch.utils.data import Dataset
+from monai import transforms
 
 from typing import Sequence
 
 __all__ = ["SegmentationDataset",
-           "SegmentationPatchDataset"]
+           "SegmentationPatchDataset",
+           "get_augmentation_transform"]
 
 
 def mmap_to_normal(arr):
@@ -69,7 +72,8 @@ class SegmentationPatchDataset(SegmentationDataset):
                  patch_size: int | Sequence[int],
                  patch_batch_size: int,
                  image_key: str = "image",
-                 label_key: str = "label"):
+                 label_key: str = "label",
+                 transform=None):
 
         super().__init__(data_dir=data_dir,
                          json_file=json_file,
@@ -79,12 +83,16 @@ class SegmentationPatchDataset(SegmentationDataset):
 
         self.patch_size = (patch_size,)*3 if isinstance(patch_size, int) else patch_size
         self.patch_batch_size = patch_batch_size
+        self.transform = transform
 
     def __getitem__(self, idx):
         # Keep images in disk memory
         image, label = self.load_mmap(idx)
 
         patches = self.get_patches(image, label, num_patches=self.patch_batch_size)
+
+        if self.transform:
+            patches = self.transform(patches)
 
         return patches
 
@@ -116,6 +124,19 @@ class SegmentationPatchDataset(SegmentationDataset):
 
         return patches
 
+
+def get_augmentation_transform(args):
+    augmentation_transform = transforms.Compose(
+        [
+            transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=0),
+            transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=1),
+            transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=2),
+            transforms.RandRotate90d(keys=["image", "label"], prob=args.rand_rot_prob, max_k=3),
+            transforms.RandScaleIntensityd(keys=["image", "label"], factors=0.1, prob=args.rand_scale_prob),
+            transforms.RandShiftIntensityd(keys=["image", "label"], offsets=0.1, prob=args.rand_shift_prob),
+            transforms.ToTensord(keys=["image", "label"]),
+        ]
+    )
 
 if __name__ == '__main__':
     import sys

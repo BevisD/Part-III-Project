@@ -31,6 +31,10 @@ parser.add_argument("--batch-size", type=int, default=1)
 parser.add_argument("--sw-batch-size", type=int, default=4)
 parser.add_argument("--val-every", type=int, default=4)
 parser.add_argument("--workers", type=int, default=0)
+parser.add_argument("--rand-flip-prob", type=float, default=0.2)
+parser.add_argument("--rand-rot-prob", type=float, default=0.2)
+parser.add_argument("--rand-scale-prob", type=float, default=0.1)
+parser.add_argument("--rand-shift-prob", type=float, default=0.1)
 
 # Paths
 parser.add_argument("--data-dir", type=str, required=True)
@@ -88,7 +92,8 @@ def main(args) -> None:
 
     # Data loaders
     trainer.train_loader = DataLoader(train_dataset,
-                                      batch_size=args.batch_size, num_workers=args.workers)
+                                      batch_size=args.batch_size,
+                                      num_workers=args.workers)
     trainer.val_loader = DataLoader(val_dataset, batch_size=1, num_workers=args.workers)
 
     # Loss
