@@ -36,12 +36,13 @@ class Trainer:
 
     def train(self):
         for epoch in range(self.start_epoch, self.max_epochs):
+            self.epoch = epoch
             print(time.ctime(), "Epoch:", epoch)
             epoch_time = time.perf_counter()
 
             train_loss, train_acc = self.train_epoch()
 
-            curr_epoch_str = str(self.epoch).rjust(len(str(self.max_epochs - 1)), "0")
+            curr_epoch_str = str(epoch).rjust(len(str(self.max_epochs - 1)), "0")
             print(f"Train Epoch {curr_epoch_str}/{self.max_epochs - 1}  "
                   f"Mean Loss: {train_loss:.4f}  "
                   f"Time: {time.perf_counter() - epoch_time:.2f}s")

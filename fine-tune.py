@@ -76,6 +76,7 @@ def main(args) -> None:
             trainer.start_epoch = weights["epoch"]
         if "best_acc" in weights:
             trainer.best_val_acc = weights["best_acc"]
+        print(f"Resuming training from epoch {trainer.start_epoch} best-acc {trainer.best_val_acc:.5f}")
 
     # Datasets
     train_dataset = SegmentationPatchDataset(
