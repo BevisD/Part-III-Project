@@ -137,22 +137,3 @@ def get_augmentation_transform(args):
             transforms.ToTensord(keys=["image", "label"]),
         ]
     )
-
-if __name__ == '__main__':
-    import sys
-    import time
-    import monai.transforms as transforms
-    from monai.networks.nets import SwinUNETR
-    import torch
-
-    input = torch.randn((1, 1, 76, 96, 96))
-
-    model = SwinUNETR(
-        img_size=96,
-        in_channels=1,
-        out_channels=2,
-        feature_size=48,
-    )
-
-    out = model(input)
-    print(out.shape)

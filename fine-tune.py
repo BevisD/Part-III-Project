@@ -7,7 +7,7 @@ from monai.transforms import AsDiscrete
 from monai.metrics import DiceMetric
 from monai.data import DataLoader
 
-from utils import post_pred_transform, SwinInferer, SegmentationPatchDataset, SegmentationDataset
+from utils import post_pred_transform, SwinInferer, SegmentationPatchDataset, SegmentationDataset, get_augmentation_transform
 from trainer import Trainer
 
 parser = argparse.ArgumentParser()
@@ -48,6 +48,8 @@ def main(args) -> None:
     torch.cuda.set_device(0)
     torch.backends.cudnn.benchmark = True
 
+    augmentation_transform = get_augmentation_transform(args)
+
     trainer = Trainer(
         log_dir=args.log_dir,
         max_epochs=args.max_epochs,
@@ -81,7 +83,8 @@ def main(args) -> None:
         json_file=args.json_file,
         data_list_key="training",
         patch_size=args.roi_size,
-        patch_batch_size=args.sw_batch_size
+        patch_batch_size=args.sw_batch_size,
+        transform=augmentation_transform
     )
 
     val_dataset = SegmentationDataset(
