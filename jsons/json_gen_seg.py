@@ -1,9 +1,11 @@
 import json
 import os
 import csv
+import pathlib
 import random
 import argparse
 import glob
+import warnings
 
 
 # Parse the input arguments
@@ -57,6 +59,42 @@ def from_csv(args):
     return return_paths
 
 
+def assert_folders(args):
+    for sub_dir in [args["pre_dir"], args["post_dir"]]:
+        if not os.path.isdir(os.path.join(args['data_dir'], sub_dir)):
+            raise ValueError(f"No directory called {sub_dir} in {args['data_dir']}")
+
+        sub_pth = os.path.join(args['data_dir'], sub_dir)
+        for sub_sub_dir in [args["image_dir"], args["label_dir"]]:
+            if not os.path.isdir(os.path.join(sub_pth, sub_sub_dir)):
+                raise ValueError(f"No directory called {sub_sub_dir} in {sub_pth}")
+
+
+def pair_up_files(images: list[str], labels: list[str],
+                  image_key: str = "image", label_key: str = "label"):
+    image_dict = {}
+    label_dict = {}
+
+    for image in images:
+        path = pathlib.Path(image)
+        image_dict[path.name] = str(path.parent)
+
+    for label in labels:
+        path = pathlib.Path(label)
+        label_dict[path.name] = str(path.parent)
+
+    files = set.intersection(set(image_dict.keys()), set(label_dict.keys()))
+
+    pairs = []
+    for file in files:
+        pairs.append({
+            image_key: os.path.join(image_dict[file], file),
+            label_key: os.path.join(label_dict[file], file)
+        })
+
+    return pairs
+
+
 def from_dir(args):
     pre_images = glob.glob(os.path.join(args["pre_dir"], args["image_dir"], f"*{args['file_extension']}"),
                            root_dir=args["data_dir"], recursive=True)
@@ -67,27 +105,25 @@ def from_dir(args):
                             root_dir=args["data_dir"], recursive=True)
     post_labels = glob.glob(os.path.join(args["post_dir"], args["label_dir"], f"*{args['file_extension']}"),
                             root_dir=args["data_dir"], recursive=True)
-    
-    pre_list = [
-        {
-            args["image_key"]: pre_image,
-            args["label_key"]: pre_label
-        }
-        for pre_image, pre_label in zip(pre_images, pre_labels)
-    ]
 
-    post_list = [
-        {
-            args["image_key"]: post_image,
-            args["label_key"]: post_label
-        }
-        for post_image, post_label in zip(post_images, post_labels)
-    ]
-    
+    pre_list = pair_up_files(pre_images, pre_labels, image_key=args["image_key"], label_key=args["label_key"])
+    post_list = pair_up_files(post_images, post_labels, image_key=args["image_key"], label_key=args["label_key"])
+
+    if len(pre_list) != len(pre_images):
+        warnings.warn(f"Missing labels for {len(pre_images) - len(pre_list)} pre case(s)")
+    if len(pre_list) != len(pre_labels):
+        warnings.warn(f"Missing images for {len(pre_labels) - len(pre_list)} pre case(s)")
+    if len(post_list) != len(post_images):
+        warnings.warn(f"Missing labels for {len(post_images) - len(post_list)} post case(s)")
+    if len(post_list) != len(post_labels):
+        warnings.warn(f"Missing images for {len(post_labels) - len(post_list)} post case(s)")
+
     return pre_list + post_list
 
 
 def main(args):
+    assert_folders(args)
+
     if args["csv_file"] is None:
         print("Creating JSON from folder search")
         data = from_dir(args)

@@ -28,21 +28,12 @@ parser.add_argument("--learning-rate", type=float, default=1e-4)
 parser.add_argument("--weight-decay", type=float, default=1e-5)
 parser.add_argument("--max-epochs", type=int, required=True)
 parser.add_argument("--batch-size", type=int, default=1)
-parser.add_argument("--sw-batch-size", type=int, default=1)
+parser.add_argument("--sw-batch-size", type=int, default=4)
 parser.add_argument("--val-every", type=int, default=4)
-
-# Transform Parameters
-parser.add_argument("--a-min", type=float, default=-150)
-parser.add_argument("--a-max", type=float, default=250)
-parser.add_argument("--b-min", type=float, default=0)
-parser.add_argument("--b-max", type=float, default=1)
-parser.add_argument("--space-x", type=float, default=1.0)
-parser.add_argument("--space-y", type=float, default=1.0)
-parser.add_argument("--space-z", type=float, default=1.0)
 
 # Paths
 parser.add_argument("--data-dir", type=str, required=True)
-parser.add_argument("--json-list", type=str, required=True)
+parser.add_argument("--json-file", type=str, required=True)
 parser.add_argument("--log-dir", type=str, required=True)
 parser.add_argument("--pretrained-path", type=str, required=True)
 
@@ -72,8 +63,6 @@ def main(args) -> None:
 
     weights = torch.load(args.pretrained_path)
     model.load_state_dict(weights["state_dict"])
-    trainer.model = model
-    trainer.start_epoch = weights["start_epoch"]
 
     # Datasets
     train_dataset = SegmentationPatchDataset(
@@ -113,10 +102,11 @@ def main(args) -> None:
     trainer.model_inferer = SwinInferer(model, roi_size=args.roi_size)
 
     # Print number of parameters
-    pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    pytorch_total_params = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
     print("Total parameters count", pytorch_total_params)
 
-    trainer.model.cuda(0)
+    model.cuda(0)
+    trainer.model = model
 
     # Optimizer
     trainer.optimizer = torch.optim.AdamW(model.parameters(),

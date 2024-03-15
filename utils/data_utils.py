@@ -93,6 +93,7 @@ class SegmentationPatchDataset(SegmentationDataset):
 
         patches = []
         for _ in range(num_patches):
+            padding = [(0, 0)]
             for i, (image_length, patch_length) in enumerate(zip(image.shape[1:], self.patch_size)):
                 if image_length >= patch_length:
                     patch_corner = np.random.randint(0, image_length - patch_length + 1)
@@ -100,9 +101,13 @@ class SegmentationPatchDataset(SegmentationDataset):
                     patch_corner = 0
 
                 slices[i] = slice(patch_corner, patch_corner + patch_length)
+                padding.append((0, max(patch_length - image_length, 0)))
 
-            image_patch = mmap_to_normal(image[:, *slices])
-            label_patch = mmap_to_normal(label[:, *slices])
+            image_patch = mmap_to_normal(image[:, slices[0], slices[1], slices[2]])
+            label_patch = mmap_to_normal(label[:, slices[0], slices[1], slices[2]])
+
+            image_patch = np.pad(image_patch, padding)
+            label_patch = np.pad(label_patch, padding)
 
             patches.append({
                 self.image_key: image_patch,
@@ -115,22 +120,18 @@ class SegmentationPatchDataset(SegmentationDataset):
 if __name__ == '__main__':
     import sys
     import time
-    from monai.transforms import LoadImaged, Compose, ToTensord
+    import monai.transforms as transforms
+    from monai.networks.nets import SwinUNETR
+    import torch
 
-    data = {
-        "image": "data/NeOv_rigid_sample/pre_treatment/images/pid_038.nii.gz",
-    }
+    input = torch.randn((1, 1, 76, 96, 96))
 
-    transform = Compose(
-        [
-            LoadImaged(keys=["image"]),
-            ToTensord(keys=["image"])
-        ]
+    model = SwinUNETR(
+        img_size=96,
+        in_channels=1,
+        out_channels=2,
+        feature_size=48,
     )
-    t_1 = time.perf_counter()
-    data = transform(data)
-    t_2 = time.perf_counter()
 
-    print(f"Time: {t_2 - t_1}")
-    print(f"Mem: {sys.getsizeof(data)}B")
-
+    out = model(input)
+    print(out.shape)

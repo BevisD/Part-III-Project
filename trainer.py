@@ -25,10 +25,14 @@ class Trainer:
     start_epoch: int = 0
     post_label: callable = None
     post_pred: callable = None
-    scaler = GradScaler()
-    writer = SummaryWriter(log_dir=log_dir)
     best_val_acc = 0.0
     epoch = start_epoch
+
+    def __post_init__(self):
+        self.writer = SummaryWriter(log_dir=self.log_dir)
+        self.scaler = GradScaler()
+
+        print(f"Saving logs to {self.writer.logdir}")
 
     def train(self):
         for epoch in range(self.start_epoch, self.max_epochs):
@@ -37,8 +41,9 @@ class Trainer:
 
             train_loss, train_acc = self.train_epoch()
 
-            print(f"Train Epoch {epoch}/{self.max_epochs - 1}\t"
-                  f"Mean Loss: {train_loss:.4f}\t"
+            curr_epoch_str = str(self.epoch).rjust(len(str(self.max_epochs - 1)), "0")
+            print(f"Train Epoch {curr_epoch_str}/{self.max_epochs - 1}  "
+                  f"Mean Loss: {train_loss:.4f}  "
                   f"Time: {time.perf_counter() - epoch_time:.2f}s")
             self.writer.add_scalar("train_loss", train_loss, epoch)
             self.writer.add_scalar("train_acc", train_acc, epoch)
@@ -46,8 +51,8 @@ class Trainer:
             if (epoch + 1) % self.val_every == 0:
                 val_loss, val_acc = self.val_epoch()
 
-                print(f"Validate Epoch {epoch}/{self.max_epochs - 1}\t"
-                      f"Mean Acc: {val_acc:.4f}\t"
+                print(f"Validate Epoch {curr_epoch_str}/{self.max_epochs - 1}  "
+                      f"Mean Acc: {val_acc:.4f}  "
                       f"Time: {time.perf_counter() - epoch_time:.2f}s")
                 self.writer.add_scalar("val_acc", val_acc, epoch)
                 self.writer.add_scalar("val_loss", val_loss, epoch)
@@ -89,9 +94,11 @@ class Trainer:
             epoch_loss += mean_batch_loss
             epoch_acc += train_acc
 
+            curr_epoch_str = str(self.epoch).rjust(len(str(self.max_epochs - 1)), "0")
+            curr_index_str = str(index).rjust(len(str(len(self.train_loader) - 1)), "0")
             print(
-                f"Train Batch {self.epoch}/{self.max_epochs - 1}\t{index}/{len(self.train_loader)}\t"
-                f"Loss: {mean_batch_loss:.4f}\t"
+                f"Train Batch {curr_epoch_str}/{self.max_epochs - 1}  {curr_index_str}/{len(self.train_loader) - 1}  "
+                f"Loss: {mean_batch_loss:.4f}  "
                 f"Time: {time.perf_counter() - start_time:.2f}s"
             )
 
@@ -115,15 +122,18 @@ class Trainer:
                     else:
                         logits = self.model_inferer(data)  # B*P C H W D
 
-                val_acc, not_nans = self.calc_accuracy(target, logits)
-                val_loss = self.loss_func(logits, target)
+                    val_loss = self.loss_func(logits, target)
+                    val_acc, not_nans = self.calc_accuracy(target, logits)
 
                 epoch_acc += val_acc
-                epoch_loss += val_loss
+                epoch_loss += val_loss.item()
+
+                curr_epoch_str = str(self.epoch).rjust(len(str(self.max_epochs - 1)), "0")
+                curr_index_str = str(index).rjust(len(str(len(self.val_loader) - 1)), "0")
                 print(
-                    f"Validate Batch {self.epoch}/{self.max_epochs} {index}/{len(self.val_loader)}\t"
-                    f"Acc: {val_acc:.4f}\t"
-                    f"Not NaNs: {not_nans}\t"
+                    f"Validate Batch {curr_epoch_str}/{self.max_epochs - 1} {curr_index_str}/{len(self.val_loader) - 1}  "
+                    f"Acc: {val_acc:.4f}  "
+                    f"Not NaNs: {not_nans}  "
                     f"Time: {time.perf_counter() - start_time:.2f}s"
                 )
 

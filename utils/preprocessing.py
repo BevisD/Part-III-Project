@@ -108,9 +108,9 @@ def main(args):
 
             if sub_folder in img_folders:
                 data = scale_intensity(data, args.a_min, args.a_max,
-                                       args.b_min, args.b_max, clip=not args.no_clip)
+                                       args.b_min, args.b_max, clip=not args.no_clip).astype(np.float16)
             elif sub_folder in seg_folders:
-                data = select_channels(data, channels=[1])
+                data = select_channels(data, channels=[1]).astype(np.int8)
             np.save(os.path.join(args.output_dir, sub_folder, filename), data)
 
 
