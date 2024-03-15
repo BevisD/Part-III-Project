@@ -30,6 +30,7 @@ parser.add_argument("--max-epochs", type=int, required=True)
 parser.add_argument("--batch-size", type=int, default=1)
 parser.add_argument("--sw-batch-size", type=int, default=4)
 parser.add_argument("--val-every", type=int, default=4)
+parser.add_argument("--workers", type=int, default=0)
 
 # Paths
 parser.add_argument("--data-dir", type=str, required=True)
@@ -64,6 +65,12 @@ def main(args) -> None:
     weights = torch.load(args.pretrained_path)
     model.load_state_dict(weights["state_dict"])
 
+    if args.load_checkpoint:
+        if "epoch" in weights:
+            trainer.start_epoch = weights["epoch"]
+        if "best_acc" in weights:
+            trainer.best_val_acc = weights["best_acc"]
+
     # Datasets
     train_dataset = SegmentationPatchDataset(
         data_dir=args.data_dir,
@@ -80,8 +87,9 @@ def main(args) -> None:
     )
 
     # Data loaders
-    trainer.train_loader = DataLoader(train_dataset, batch_size=args.batch_size)
-    trainer.val_loader = DataLoader(val_dataset, batch_size=1)
+    trainer.train_loader = DataLoader(train_dataset,
+                                      batch_size=args.batch_size, num_workers=args.workers)
+    trainer.val_loader = DataLoader(val_dataset, batch_size=1, num_workers=args.workers)
 
     # Loss
     trainer.loss_func = DiceCELoss(
@@ -102,7 +110,7 @@ def main(args) -> None:
     trainer.model_inferer = SwinInferer(model, roi_size=args.roi_size)
 
     # Print number of parameters
-    pytorch_total_params = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+    pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Total parameters count", pytorch_total_params)
 
     model.cuda(0)
