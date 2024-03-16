@@ -35,9 +35,21 @@ class Trainer:
         print(f"Saving logs to {self.writer.logdir}")
 
     def train(self):
+        self.writer.add_hparams({
+            "epochs": self.max_epochs,
+            "start_epoch": self.start_epoch,
+            "batch_size": self.train_loader.batch_size,
+            "optimizer": self.optimizer.__class__.__name__,
+            "accuracy": self.acc_func.__class__.__name__,
+            "loss": self.loss_func.__class__.__name__,
+            "val_every": self.val_every
+        }, {})
+
         for epoch in range(self.start_epoch, self.max_epochs):
             self.epoch = epoch
-            print(time.ctime(), "Epoch:", epoch)
+            lr = self.optimizer.param_groups[0]["lr"]
+            print(f"{time.ctime()} Epoch: {epoch} Learning Rate: {lr:.6f}")
+            self.writer.add_scalar("learning_rate", lr, epoch)
             epoch_time = time.perf_counter()
 
             train_loss, train_acc = self.train_epoch()
