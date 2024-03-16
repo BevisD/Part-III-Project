@@ -64,7 +64,9 @@ class Trainer:
 
                     self.save_checkpoint(filename="model_best.pt")
 
-            self.scheduler.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
+
             self.save_checkpoint(filename="model_final.pt")
 
         print(f"Training Finished! Best Accuracy: {self.best_val_acc:.4f}")

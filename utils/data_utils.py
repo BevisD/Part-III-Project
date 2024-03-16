@@ -1,7 +1,6 @@
 import json
 import os
 
-import monai.transforms
 import numpy as np
 from torch.utils.data import Dataset
 from monai import transforms
@@ -81,7 +80,7 @@ class SegmentationPatchDataset(SegmentationDataset):
                          image_key=image_key,
                          label_key=label_key)
 
-        self.patch_size = (patch_size,)*3 if isinstance(patch_size, int) else patch_size
+        self.patch_size = (patch_size,) * 3 if isinstance(patch_size, int) else patch_size
         self.patch_batch_size = patch_batch_size
         self.transform = transform
 
@@ -132,8 +131,10 @@ def get_augmentation_transform(args):
             transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=1),
             transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=2),
             transforms.RandRotate90d(keys=["image", "label"], prob=args.rand_rot_prob, max_k=3),
-            transforms.RandScaleIntensityd(keys=["image", "label"], factors=0.1, prob=args.rand_scale_prob),
-            transforms.RandShiftIntensityd(keys=["image", "label"], offsets=0.1, prob=args.rand_shift_prob),
+            transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=args.rand_scale_prob),
+            transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=args.rand_shift_prob),
+            transforms.RandGaussianNoised(keys="image", prob=args.rand_noise_prob, mean=0.0, std=0.05),
             transforms.ToTensord(keys=["image", "label"]),
         ]
     )
+    return augmentation_transform
