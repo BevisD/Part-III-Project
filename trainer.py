@@ -35,7 +35,7 @@ class Trainer:
         print(f"Saving logs to {self.writer.logdir}")
 
     def train(self):
-        self.writer.add_hparams({
+        h_params = {
             "epochs": self.max_epochs,
             "start_epoch": self.start_epoch,
             "batch_size": self.train_loader.batch_size,
@@ -43,7 +43,10 @@ class Trainer:
             "accuracy": self.acc_func.__class__.__name__,
             "loss": self.loss_func.__class__.__name__,
             "val_every": self.val_every
-        }, {})
+        }
+
+        for key, value in h_params.items():
+            self.writer.add_text("Hyperparameters", f"{key}: {value}")
 
         for epoch in range(self.start_epoch, self.max_epochs):
             self.epoch = epoch

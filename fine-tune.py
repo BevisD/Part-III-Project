@@ -98,7 +98,8 @@ def main(args) -> None:
     # Data loaders
     trainer.train_loader = DataLoader(train_dataset,
                                       batch_size=args.batch_size,
-                                      num_workers=args.workers)
+                                      num_workers=args.workers,
+                                      shuffle=True)
     trainer.val_loader = DataLoader(val_dataset, batch_size=1, num_workers=args.workers)
 
     # Loss
