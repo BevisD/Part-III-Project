@@ -1,5 +1,4 @@
-import monai.transforms
-from torch import argmax
+from torch import sigmoid
 from monai.transforms import AsDiscrete
 from monai.inferers import sliding_window_inference
 from functools import partial
@@ -8,10 +7,10 @@ from monai.networks.nets import SwinUNETR
 __all__ = ["post_pred_transform", "SwinInferer"]
 
 
-def post_pred_transform(num_classes: int, dim=0) -> callable:
+def post_pred_transform() -> callable:
     def _wrapper(x):
-        x = argmax(x, dim=dim, keepdim=True)
-        x = AsDiscrete(to_onehot=num_classes)(x)
+        x = sigmoid(x)
+        x = AsDiscrete(threshold=0.5)(x)
         return x
     return _wrapper
 

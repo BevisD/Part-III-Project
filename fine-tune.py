@@ -7,7 +7,8 @@ from monai.transforms import AsDiscrete
 from monai.metrics import DiceMetric
 from monai.data import DataLoader
 
-from utils import post_pred_transform, SwinInferer, SegmentationPatchDataset, SegmentationDataset, get_augmentation_transform
+from utils import post_pred_transform, SwinInferer, SegmentationPatchDataset, SegmentationDataset, \
+    get_augmentation_transform
 from trainer import Trainer
 
 parser = argparse.ArgumentParser()
@@ -33,9 +34,10 @@ parser.add_argument("--val-every", type=int, default=4)
 parser.add_argument("--workers", type=int, default=0)
 parser.add_argument("--rand-flip-prob", type=float, default=0.2)
 parser.add_argument("--rand-rot-prob", type=float, default=0.2)
-parser.add_argument("--rand-scale-prob", type=float, default=1.0)
-parser.add_argument("--rand-shift-prob", type=float, default=1.0)
-parser.add_argument("--rand-noise-prob", type=float, default=1.0)
+parser.add_argument("--rand-scale-prob", type=float, default=0.1)
+parser.add_argument("--rand-shift-prob", type=float, default=0.1)
+parser.add_argument("--rand-noise-prob", type=float, default=0.1)
+parser.add_argument("--grad-scaler", action="store_true")
 
 # Paths
 parser.add_argument("--data-dir", type=str, required=True)
@@ -96,26 +98,28 @@ def main(args) -> None:
     )
 
     # Data loaders
-    trainer.train_loader = DataLoader(train_dataset,
-                                      batch_size=args.batch_size,
-                                      num_workers=args.workers,
-                                      shuffle=True)
-    trainer.val_loader = DataLoader(val_dataset, batch_size=1, num_workers=args.workers)
-
-    # Loss
-    trainer.loss_func = DiceCELoss(
-        include_background=True,
-        to_onehot_y=True,
-        softmax=True,
-        squared_pred=args.square_pred
+    trainer.train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        num_workers=args.workers,
+        pin_memory=True,
+        shuffle=True
+    )
+    trainer.val_loader = DataLoader(
+        val_dataset,
+        batch_size=1,
+        num_workers=args.workers,
+        pin_memory=True
     )
 
-    # Output transformations
-    trainer.post_label = AsDiscrete(to_onehot=args.out_channels)
-    trainer.post_pred = post_pred_transform(args.out_channels)
+    # Transforms
+    trainer.post_pred = post_pred_transform()
+
+    # Loss
+    trainer.loss_func = DiceCELoss(sigmoid=True)
 
     # Metric
-    trainer.acc_func = DiceMetric(include_background=False, get_not_nans=True)
+    trainer.acc_func = DiceMetric(get_not_nans=True)
 
     # Model Inferer for evaluation
     trainer.model_inferer = SwinInferer(model, roi_size=args.roi_size)

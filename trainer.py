@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch.cuda.amp import GradScaler, autocast
-from monai.data import DataLoader, decollate_batch
+from monai.data import DataLoader
 from tensorboardX import SummaryWriter
 
 
@@ -27,10 +27,15 @@ class Trainer:
     post_pred: callable = None
     best_val_acc = 0.0
     epoch = start_epoch
+    grad_scale = False
 
     def __post_init__(self):
         self.writer = SummaryWriter(log_dir=self.log_dir)
-        self.scaler = GradScaler()
+
+        self.scaler = None
+        if self.grad_scale:
+            print("Using Gradient Scaling")
+            self.scaler = GradScaler()
 
         print(f"Saving logs to {self.writer.logdir}")
 
@@ -104,9 +109,13 @@ class Trainer:
 
                 train_acc, train_not_nans = self.calc_accuracy(target, logits)
 
-                self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                if self.grad_scale:
+                    self.scaler.scale(loss).backward()
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    loss.backward()
+                    self.optimizer.step()
 
             mean_batch_loss = loss.item()
             epoch_loss += mean_batch_loss
@@ -132,13 +141,13 @@ class Trainer:
         with torch.no_grad():
             for index, batch in enumerate(self.val_loader):
                 data, target = batch["image"], batch["label"]
-                data, target = data.cuda(0), target.cuda(0)  # B*P 1 H W D
+                data, target = data.cuda(0), target.cuda(0)  # 1 1 H W D
 
                 with autocast():
                     if self.model_inferer is None:
                         logits = self.model(data)
                     else:
-                        logits = self.model_inferer(data)  # B*P C H W D
+                        logits = self.model_inferer(data)  # 1 C H W D
 
                     val_loss = self.loss_func(logits, target)
                     val_acc, not_nans = self.calc_accuracy(target, logits)
@@ -160,14 +169,13 @@ class Trainer:
         return epoch_loss / len(self.val_loader), epoch_acc / len(self.val_loader)
 
     def calc_accuracy(self, target, logits):
-        labels_list = decollate_batch(target)  # [C H W D]
-        outputs_list = decollate_batch(logits)  # [C H W D]
-
-        labels_converted = [self.post_label(label_tensor) for label_tensor in labels_list]
-        output_converted = [self.post_pred(pred_tensor) for pred_tensor in outputs_list]
+        if self.post_label is not None:
+            target = self.post_label(target)
+        if self.post_pred is not None:
+            logits = self.post_pred(logits)
 
         self.acc_func.reset()
-        self.acc_func(y_pred=output_converted, y=labels_converted)
+        self.acc_func(y_pred=logits, y=target)
         acc, val_not_nan = self.acc_func.aggregate()
 
         return acc.item(), int(val_not_nan.item())
