@@ -23,10 +23,12 @@ class SegmentationDataset(Dataset):
                  json_file: str,
                  data_list_key: str,
                  image_key: str = "image",
-                 label_key: str = "label"):
+                 label_key: str = "label",
+                 load_meta: bool = False):
         self.image_key = image_key
         self.label_key = label_key
         self.data_dir = data_dir
+        self.load_meta = load_meta
 
         json_path = os.path.join(data_dir, json_file)
         with open(json_path, "r") as fp:
@@ -50,6 +52,10 @@ class SegmentationDataset(Dataset):
             self.image_key: normal_image,
             self.label_key: normal_label
         }
+
+        if self.load_meta:
+            data["filename"] = self.data_list[idx][self.image_key]
+
         return data
 
     def load_mmap(self, idx):

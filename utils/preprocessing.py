@@ -92,14 +92,23 @@ def main(args):
     for sub_folder in sub_folders:
         os.makedirs(os.path.join(args.output_dir, sub_folder), exist_ok=True)
 
+    header, affine = None, None
     for sub_folder in sub_folders:
         filepaths = glob.glob(os.path.join(args.data_dir, sub_folder, f"*{args.file_extension}"))
-
         for filepath in filepaths:
             print(f"Preprocessing {filepath}")
             filename = Path(filepath).stem.split(".")[0]
 
             img = nib.load(filepath)
+            if header is None:
+                header = img.header
+            elif img.header != header:
+                raise Exception("Headers of images do not match")
+            if affine is None:
+                affine = img.affine
+            elif img.affine != affine:
+                raise Exception("Affines of images do not match")
+
             data = img.get_fdata()
             if ornt is not None:
                 data = nib.apply_orientation(data, ornt)
@@ -112,6 +121,9 @@ def main(args):
             elif sub_folder in seg_folders:
                 data = select_channels(data, channels=[1]).astype(np.int8)
             np.save(os.path.join(args.output_dir, sub_folder, filename), data)
+
+    print("Saving metadata")
+    np.savez(args.output_dir, header=header, affine=affine)
 
 
 if __name__ == '__main__':
