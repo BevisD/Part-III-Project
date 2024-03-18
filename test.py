@@ -6,6 +6,7 @@ import pathlib
 import nibabel as nib
 import numpy as np
 import torch
+from torch.cuda.amp import autocast
 from monai.networks.nets import SwinUNETR
 from monai.data import DataLoader
 from monai.metrics import DiceMetric
@@ -64,7 +65,7 @@ def main(args):
         roi_size=args.roi_size,
         sw_batch_size=args.sw_batch_size
     )
-    # model.cuda(0)
+    model.cuda(0)
 
     acc_func = DiceMetric(get_not_nans=True)
     post_pred = post_pred_transform(threshold=0.5)
@@ -75,38 +76,40 @@ def main(args):
         header, affine = metadata["header"], metadata["affine"]
 
     results = []
-    for i, batch in enumerate(test_loader):
-        data, target, filename = batch["image"], batch["label"], batch["filename"][0]
-        # data  1 1 H W D - torch.HalfTensor
-        # label 1 1 H W D - torch.CharTensor
-        # filename - str
+    with torch.no_grad():
+        for i, batch in enumerate(test_loader):
+            data, target, filename = batch["image"], batch["label"], batch["filename"][0]
+            # data  1 1 H W D - torch.HalfTensor
+            # label 1 1 H W D - torch.CharTensor
+            # filename - str
 
-        # data, target = data.cuda(0), target.cuda(0)
+            data, target = data.cuda(0), target.cuda(0)
 
-        print(f"Inference on {filename}")
+            print(f"Inference on {filename}")
 
-        logits = model_inferer(data)  # 1 2 H W D
-        out = post_pred(logits)
+            with autocast():
+            logits = model_inferer(data)  # 1 2 H W D
+            out = post_pred(logits)
 
-        acc_func.reset()
-        acc_func(y_pred=out, y=target)
-        acc, not_nan = acc_func.aggregate()
+            acc_func.reset()
+            acc_func(y_pred=out, y=target)
+            acc, not_nan = acc_func.aggregate()
 
-        results.append({
-            "Filename": filename,
-            "Accuracy": acc,
-            "NaN": not bool(not_nan)
-        })
+            results.append({
+                "Filename": filename,
+                "Accuracy": acc,
+                "NaN": not bool(not_nan)
+            })
 
-        print(f"Accuracy: {acc:.5f}{'' if not_nan else ' NaN'}")
+            print(f"Accuracy: {acc:.5f}{'' if not_nan else ' NaN'}")
 
-        # Save to .nii.gz
-        if args.save_outputs:
-            (args.output_dir / pathlib.Path(filename)).parent.mkdir(parents=True, exist_ok=True)
-            nib.save(
-                nib.Nifti1Image(out, affine, header),
-                os.path.join(args.output_dir, filename)
-            )
+            # Save to .nii.gz
+            if args.save_outputs:
+                (args.output_dir / pathlib.Path(filename)).parent.mkdir(parents=True, exist_ok=True)
+                nib.save(
+                    nib.Nifti1Image(out, affine, header),
+                    os.path.join(args.output_dir, filename)
+                )
 
     # Save to .csv
     if not os.path.isdir(args.output_dir):
