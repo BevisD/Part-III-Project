@@ -88,7 +88,7 @@ def main(args):
             print(f"Inference on {filename}")
 
             with autocast():
-            logits = model_inferer(data)  # 1 2 H W D
+                logits = model_inferer(data)  # 1 2 H W D
             out = post_pred(logits)
 
             acc_func.reset()

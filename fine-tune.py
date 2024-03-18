@@ -35,7 +35,7 @@ parser.add_argument("--rand-flip-prob", type=float, default=0.2)
 parser.add_argument("--rand-rot-prob", type=float, default=0.2)
 parser.add_argument("--rand-scale-prob", type=float, default=0.1)
 parser.add_argument("--rand-shift-prob", type=float, default=0.1)
-parser.add_argument("--rand-noise-prob", type=float, default=0.0)
+# parser.add_argument("--rand-noise-prob", type=float, default=0.0)
 parser.add_argument("--grad-scaler", action="store_true")
 
 # Paths

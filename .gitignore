@@ -166,3 +166,6 @@ jsons/*.json
 pretrained_models
 preprocessed
 runs
+*.npy
+*.png
+numpys/

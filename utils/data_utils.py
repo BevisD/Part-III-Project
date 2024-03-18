@@ -136,10 +136,10 @@ def get_augmentation_transform(args):
             transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=0),
             transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=1),
             transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=2),
-            transforms.RandRotate90d(keys=["image", "label"], prob=args.rand_rot_prob, max_k=3),
+            transforms.RandRotate90d(keys=["image", "label"], prob=args.rand_rot_prob, max_k=3, spatial_axes=(0, 1)),
             transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=args.rand_scale_prob),
             transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=args.rand_shift_prob),
-            transforms.RandGaussianNoised(keys="image", prob=args.rand_noise_prob, mean=0.0, std=0.05),
+            # transforms.RandGaussianNoised(keys="image", prob=args.rand_noise_prob, mean=0.0, std=0.05),
             transforms.ToTensord(keys=["image", "label"]),
         ]
     )
