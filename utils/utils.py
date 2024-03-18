@@ -7,10 +7,10 @@ from monai.networks.nets import SwinUNETR
 __all__ = ["post_pred_transform", "SwinInferer"]
 
 
-def post_pred_transform() -> callable:
+def post_pred_transform(threshold: float = 0.5) -> callable:
     def _wrapper(x):
         x = sigmoid(x)
-        x = AsDiscrete(threshold=0.5)(x)
+        x = AsDiscrete(threshold=threshold)(x)
         return x
     return _wrapper
 

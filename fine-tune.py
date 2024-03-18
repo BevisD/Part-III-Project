@@ -2,8 +2,7 @@ import argparse
 
 import torch
 from monai.networks.nets import SwinUNETR
-from monai.losses import DiceCELoss
-from monai.transforms import AsDiscrete
+from monai.losses import DiceLoss
 from monai.metrics import DiceMetric
 from monai.data import DataLoader
 
@@ -36,7 +35,7 @@ parser.add_argument("--rand-flip-prob", type=float, default=0.2)
 parser.add_argument("--rand-rot-prob", type=float, default=0.2)
 parser.add_argument("--rand-scale-prob", type=float, default=0.1)
 parser.add_argument("--rand-shift-prob", type=float, default=0.1)
-parser.add_argument("--rand-noise-prob", type=float, default=0.1)
+parser.add_argument("--rand-noise-prob", type=float, default=0.0)
 parser.add_argument("--grad-scaler", action="store_true")
 
 # Paths
@@ -113,10 +112,10 @@ def main(args) -> None:
     )
 
     # Transforms
-    trainer.post_pred = post_pred_transform()
+    trainer.post_pred = post_pred_transform(threshold=0.5)
 
     # Loss
-    trainer.loss_func = DiceCELoss(sigmoid=True)
+    trainer.loss_func = DiceLoss(sigmoid=True)
 
     # Metric
     trainer.acc_func = DiceMetric(get_not_nans=True)
