@@ -2,7 +2,7 @@ import argparse
 
 import torch
 from monai.networks.nets import SwinUNETR
-from monai.losses import DiceLoss
+from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric
 from monai.data import DataLoader
 
@@ -115,7 +115,7 @@ def main(args) -> None:
     trainer.post_pred = post_pred_transform(threshold=0.5)
 
     # Loss
-    trainer.loss_func = DiceLoss(sigmoid=True)
+    trainer.loss_func = DiceCELoss(sigmoid=True)
 
     # Metric
     trainer.acc_func = DiceMetric(get_not_nans=True)
