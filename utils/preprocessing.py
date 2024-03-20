@@ -5,7 +5,7 @@ import nibabel as nib
 from pathlib import Path
 from scipy.ndimage import zoom
 import argparse
-import warnings
+import pickle
 
 parser = argparse.ArgumentParser(description="Preprocessing tool to convert from .nii.gz to .npy")
 
@@ -69,14 +69,14 @@ def select_channels(data: np.ndarray, channels: list):
 
 
 def main(args):
-    target_size = (args.size_x, args.size_y, args.size_z)
-
-    ornt = None
-    if args.axes_order is not None:
-        ornt = nib.orientations.axcodes2ornt(args.axes_order)
-        if any([s is not None for s in target_size]):
-            warnings.warn(f"Applying orientation {args.axes_order} before dimension scaling")
-
+    # target_size = (args.size_x, args.size_y, args.size_z)
+    #
+    # ornt = None
+    # if args.axes_order is not None:
+    #     ornt = nib.orientations.axcodes2ornt(args.axes_order)
+    #     if any([s is not None for s in target_size]):
+    #         warnings.warn(f"Applying orientation {args.axes_order} before dimension scaling")
+    #
     img_folders = [
         os.path.join(args.pre_dir, args.image_dir),
         os.path.join(args.post_dir, args.image_dir),
@@ -88,10 +88,10 @@ def main(args):
     ]
 
     sub_folders = img_folders + seg_folders
-
-    for sub_folder in sub_folders:
-        os.makedirs(os.path.join(args.output_dir, sub_folder), exist_ok=True)
-
+    #
+    # for sub_folder in sub_folders:
+    #     os.makedirs(os.path.join(args.output_dir, sub_folder), exist_ok=True)
+    #
     header, affine = None, None
     for sub_folder in sub_folders:
         filepaths = glob.glob(os.path.join(args.data_dir, sub_folder, f"*{args.file_extension}"))
@@ -106,24 +106,30 @@ def main(args):
                 raise Exception("Headers of images do not match")
             if affine is None:
                 affine = img.affine
-            elif img.affine != affine:
+            elif not np.allclose(img.affine, affine):
                 raise Exception("Affines of images do not match")
-
-            data = img.get_fdata()
-            if ornt is not None:
-                data = nib.apply_orientation(data, ornt)
-
-            data = resample_3d(data, target_size)
-
-            if sub_folder in img_folders:
-                data = scale_intensity(data, args.a_min, args.a_max,
-                                       args.b_min, args.b_max, clip=not args.no_clip).astype(np.float16)
-            elif sub_folder in seg_folders:
-                data = select_channels(data, channels=[1]).astype(np.int8)
-            np.save(os.path.join(args.output_dir, sub_folder, filename), data)
+    #
+    #         data = img.get_fdata()
+    #         if ornt is not None:
+    #             data = nib.apply_orientation(data, ornt)
+    #
+    #         data = resample_3d(data, target_size)
+    #
+    #         if sub_folder in img_folders:
+    #             data = scale_intensity(data, args.a_min, args.a_max,
+    #                                    args.b_min, args.b_max, clip=not args.no_clip).astype(np.float16)
+    #         elif sub_folder in seg_folders:
+    #             data = select_channels(data, channels=[1]).astype(np.int8)
+    #         np.save(os.path.join(args.output_dir, sub_folder, filename), data)
 
     print("Saving metadata")
-    np.savez(args.output_dir, header=header, affine=affine)
+    pickle_dict = {
+        "header": header,
+        "affine": affine
+    }
+
+    with open(os.path.join(args.output_dir, "meta.pkl"), "wb") as file:
+        pickle.dump(pickle_dict, file)
 
 
 if __name__ == '__main__':

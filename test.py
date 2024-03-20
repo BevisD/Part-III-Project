@@ -2,6 +2,7 @@ import argparse
 import csv
 import os
 import pathlib
+import pickle
 
 import nibabel as nib
 import numpy as np
@@ -29,6 +30,7 @@ parser.add_argument("--in-channels", type=int, default=1)
 parser.add_argument("--out-channels", type=int, default=2)
 parser.add_argument("--feature-size", type=int, default=48)
 parser.add_argument("--sw-batch-size", type=int, default=4)
+parser.add_argument("--infer-overlap", type=float, default=0.5)
 
 parser.add_argument("--workers", type=int, default=0)
 
@@ -63,7 +65,8 @@ def main(args):
     model_inferer = SwinInferer(
         model,
         roi_size=args.roi_size,
-        sw_batch_size=args.sw_batch_size
+        sw_batch_size=args.sw_batch_size,
+        overlap=args.infer_overlap
     )
     model.cuda(0)
 
@@ -72,8 +75,10 @@ def main(args):
 
     header, affine = None, None
     if args.save_outputs:
-        metadata = np.load(args.meta_file)
-        header, affine = metadata["header"], metadata["affine"]
+        with open(os.path.join(args.data_dir, "meta.pkl"), "rb") as file:
+            pickle_dict = pickle.load(file)
+            header = pickle_dict["header"]
+            affine = pickle_dict["affine"]
 
     results = []
     with torch.no_grad():
@@ -101,14 +106,16 @@ def main(args):
                 "NaN": not bool(not_nan)
             })
 
-            print(f"Accuracy: {acc:.5f}{'' if not_nan else ' NaN'}")
+            print(f"Accuracy: {acc.item():.5f}{'' if not_nan else ' NaN'}", end="")
 
             # Save to .nii.gz
+            file_path = pathlib.Path(filename)
+            nii_filename = file_path.parent / (file_path.stem + ".nii.gz")
             if args.save_outputs:
                 (args.output_dir / pathlib.Path(filename)).parent.mkdir(parents=True, exist_ok=True)
                 nib.save(
-                    nib.Nifti1Image(out, affine, header),
-                    os.path.join(args.output_dir, filename)
+                    nib.Nifti1Image(out.cpu().numpy().astype(np.int8), affine, header),
+                    os.path.join(args.output_dir, nii_filename)
                 )
 
     # Save to .csv
