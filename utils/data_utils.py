@@ -81,6 +81,8 @@ class SegmentationPatchDataset(SegmentationDataset):
                  patch_batch_size: int,
                  image_key: str = "image",
                  label_key: str = "label",
+                 num_classes: int = 2,
+                 ratios: Sequence[float] = None,
                  transform=None):
         super().__init__(data_dir=data_dir,
                          json_file=json_file,
@@ -95,8 +97,8 @@ class SegmentationPatchDataset(SegmentationDataset):
             keys=[image_key, label_key],
             label_key=label_key,
             spatial_size=self.patch_size,
-            ratios=[1, 1],
-            num_classes=2,
+            ratios=ratios if ratios else [1.0] * num_classes,
+            num_classes=num_classes,
             num_samples=self.patch_batch_size,
             warn=False
         )
@@ -141,13 +143,13 @@ def get_augmentation_transform(args):
                 prob=args.rand_smooth_prob),
             transforms.RandAdjustContrastd(
                 keys="image",
-                prob=1.0,
+                prob=args.rand_contrast_prob,
                 gamma=(0.7, 1.5),
                 invert_image=False,
                 retain_stats=False),
             transforms.RandRotated(
                 keys=["image", "label"],
-                prob=1.0,
+                prob=args.rand_rotate_prob,
                 range_x=torch.pi,
                 mode=("bilinear", "nearest"),
                 keep_size=True,

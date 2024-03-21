@@ -6,13 +6,14 @@ from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric
 from monai.data import DataLoader
 
-from utils import post_pred_transform, SwinInferer, SegmentationPatchDataset, SegmentationDataset, \
-    get_augmentation_transform
+from utils import SwinInferer, SegmentationPatchDataset, SegmentationDataset, get_augmentation_transform
 from trainer import Trainer
 
 parser = argparse.ArgumentParser()
 # Model Architecture
-parser.add_argument("--roi-size", type=int, default=96)
+parser.add_argument("--roi-size-x", type=int, default=32)
+parser.add_argument("--roi-size-y", type=int, default=256)
+parser.add_argument("--roi-size-z", type=int, default=256)
 parser.add_argument("--in-channels", type=int, default=1)
 parser.add_argument("--out-channels", type=int, default=2)
 parser.add_argument("--feature-size", type=int, default=48)
@@ -24,18 +25,20 @@ parser.add_argument("--attn-drop-rate", type=float, default=0.0)
 parser.add_argument("--path-drop-rate", type=float, default=0.0)
 parser.add_argument("--grad-checkpoint", action="store_true")
 parser.add_argument("--square-pred", action="store_true")
-parser.add_argument("--learning-rate", type=float, default=1e-4)
+parser.add_argument("--learning-rate", type=float, default=1e-3)
 parser.add_argument("--weight-decay", type=float, default=1e-5)
 parser.add_argument("--max-epochs", type=int, required=True)
 parser.add_argument("--batch-size", type=int, default=1)
 parser.add_argument("--sw-batch-size", type=int, default=4)
 parser.add_argument("--val-every", type=int, default=4)
 parser.add_argument("--workers", type=int, default=0)
-parser.add_argument("--rand-flip-prob", type=float, default=0.2)
-parser.add_argument("--rand-rot-prob", type=float, default=0.2)
-parser.add_argument("--rand-scale-prob", type=float, default=0.1)
-parser.add_argument("--rand-shift-prob", type=float, default=0.1)
-# parser.add_argument("--rand-noise-prob", type=float, default=0.0)
+parser.add_argument("--rand-flip-prob", type=float, default=0.5)
+parser.add_argument("--rand-scale-prob", type=float, default=0.15)
+parser.add_argument("--rand-shift-prob", type=float, default=0.15)
+parser.add_argument("--rand-noise-prob", type=float, default=0.15)
+parser.add_argument("--rand-smooth-prob", type=float, default=0.2)
+parser.add_argument("--rand-contrast-prob", type=float, default=0.15)
+parser.add_argument("--rand-rotate-prob", type=float, default=0.2)
 parser.add_argument("--grad-scaler", action="store_true")
 
 # Paths
@@ -112,13 +115,13 @@ def main(args) -> None:
     )
 
     # Transforms
-    trainer.post_pred = post_pred_transform(threshold=0.5)
+    trainer.post_pred = lambda x: torch.argmax(x, dim=1)
 
     # Loss
-    trainer.loss_func = DiceCELoss(sigmoid=True)
+    trainer.loss_func = DiceCELoss(include_background=False, to_onehot_y=True, softmax=True)
 
     # Metric
-    trainer.acc_func = DiceMetric(get_not_nans=True)
+    trainer.acc_func = DiceMetric(include_background=False, get_not_nans=True, num_classes=args.out_channels)
 
     # Model Inferer for evaluation
     trainer.model_inferer = SwinInferer(model, roi_size=args.roi_size)
