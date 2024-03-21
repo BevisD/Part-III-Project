@@ -4,18 +4,38 @@ import numpy as np
 
 __all__ = ["transform_timer"]
 
-def transform_timer(cls):
+
+def transform_timer(cls, verbose=True):
     class WrappedClass(cls):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.cls_name = cls.__name__
+            self.run_times = []
+            self.run_counts = 0
+            self.verbose = verbose
 
         def __call__(self, *args, **kwargs):
+            self.run_counts += 1
+
             t_1 = perf_counter()
             output = super().__call__(*args, **kwargs)
             t_2 = perf_counter()
-            print(f"{self.cls_name}: {t_2 - t_1:.5f}s")
+
+            if self.verbose:
+                print(f"{self.cls_name}: {t_2 - t_1:.5f}s")
+
+            self.run_times.append(t_2 - t_1)
             return output
+
+        def get_stats(self):
+            if self.run_counts == 0:
+                return np.nan, np.nan
+
+            return np.mean(self.run_times), np.std(self.run_times)
+
+        def print_stats(self):
+            avg, std = self.get_stats()
+            print(f"{self.cls_name}: Runs: {self.run_counts}, Avg: {avg:.5f}s, Std: {std:.5f}s")
 
     return WrappedClass
 

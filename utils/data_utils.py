@@ -1,21 +1,23 @@
 import json
 import os
+import time
 
+import matplotlib.pyplot as plt
 import numpy as np
+import torch
+import torchvision.transforms.functional as TF
+from torchvision.transforms import InterpolationMode
+
 from torch.utils.data import Dataset
 from monai import transforms
 
 from typing import Sequence
 
+from transform_timer import transform_timer
+
 __all__ = ["SegmentationDataset",
            "SegmentationPatchDataset",
            "get_augmentation_transform"]
-
-
-def mmap_to_normal(arr):
-    normal_arr = np.zeros_like(arr)
-    normal_arr[...] = arr[...]
-    return normal_arr
 
 
 class SegmentationDataset(Dataset):
@@ -43,15 +45,11 @@ class SegmentationDataset(Dataset):
 
     def __getitem__(self, idx):
         # Keep images in disk memory
-        image, label = self.load_mmap(idx)
+        data = self.load_mmap(idx)
 
-        normal_image = mmap_to_normal(image)
-        normal_label = mmap_to_normal(label)
-
-        data = {
-            self.image_key: normal_image,
-            self.label_key: normal_label
-        }
+        # Load data to RAM
+        data[self.image_key] = data[self.image_key].copy()
+        data[self.label_key] = data[self.label_key].copy()
 
         if self.load_meta:
             data["filename"] = self.data_list[idx][self.image_key]
@@ -67,7 +65,12 @@ class SegmentationDataset(Dataset):
 
         image = image.reshape((1, *image.shape))
         label = label.reshape((1, *label.shape))
-        return image, label
+
+        data = {
+            self.image_key: image,
+            self.label_key: label
+        }
+        return data
 
 
 class SegmentationPatchDataset(SegmentationDataset):
@@ -79,7 +82,6 @@ class SegmentationPatchDataset(SegmentationDataset):
                  image_key: str = "image",
                  label_key: str = "label",
                  transform=None):
-
         super().__init__(data_dir=data_dir,
                          json_file=json_file,
                          data_list_key=data_list_key,
@@ -89,43 +91,34 @@ class SegmentationPatchDataset(SegmentationDataset):
         self.patch_size = (patch_size,) * 3 if isinstance(patch_size, int) else patch_size
         self.patch_batch_size = patch_batch_size
         self.transform = transform
+        self.cropper = transforms.RandCropByLabelClassesd(
+            keys=[image_key, label_key],
+            label_key=label_key,
+            spatial_size=self.patch_size,
+            ratios=[1, 1],
+            num_classes=2,
+            num_samples=self.patch_batch_size,
+            warn=False
+        )
+
+        self.cropper.set_random_state(0)
 
     def __getitem__(self, idx):
         # Keep images in disk memory
-        image, label = self.load_mmap(idx)
+        data = self.load_mmap(idx)
 
-        patches = self.get_patches(image, label, num_patches=self.patch_batch_size)
+        patches = self.cropper(data)
 
+        # Load only patches to RAM
+        for i, patch in enumerate(patches):
+            patches[i] = {
+                self.image_key: torch.clone(patch[self.image_key]),
+                self.label_key: torch.clone(patch[self.label_key])
+            }
+
+        # Augmentation
         if self.transform:
             patches = self.transform(patches)
-
-        return patches
-
-    def get_patches(self, image, label, num_patches=4):
-        slices = [None] * 3
-
-        patches = []
-        for _ in range(num_patches):
-            padding = [(0, 0)]
-            for i, (image_length, patch_length) in enumerate(zip(image.shape[1:], self.patch_size)):
-                if image_length >= patch_length:
-                    patch_corner = np.random.randint(0, image_length - patch_length + 1)
-                else:
-                    patch_corner = 0
-
-                slices[i] = slice(patch_corner, patch_corner + patch_length)
-                padding.append((0, max(patch_length - image_length, 0)))
-
-            image_patch = mmap_to_normal(image[:, slices[0], slices[1], slices[2]])
-            label_patch = mmap_to_normal(label[:, slices[0], slices[1], slices[2]])
-
-            image_patch = np.pad(image_patch, padding)
-            label_patch = np.pad(label_patch, padding)
-
-            patches.append({
-                self.image_key: image_patch,
-                self.label_key: label_patch
-            })
 
         return patches
 
@@ -136,11 +129,32 @@ def get_augmentation_transform(args):
             transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=0),
             transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=1),
             transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=2),
-            transforms.RandRotate90d(keys=["image", "label"], prob=args.rand_rot_prob, max_k=3, spatial_axes=(0, 1)),
             transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=args.rand_scale_prob),
             transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=args.rand_shift_prob),
-            # transforms.RandGaussianNoised(keys="image", prob=args.rand_noise_prob, mean=0.0, std=0.05),
+            transforms.RandGaussianNoised(keys="image", prob=args.rand_noise_prob, mean=0.0, std=0.05),
+            transforms.RandGaussianSmoothd(
+                keys="image",
+                sigma_x=(0.11, 0.20),
+                sigma_y=(0.7, 1.2),
+                sigma_z=(0.7, 1.2),
+                approx='erf',
+                prob=args.rand_smooth_prob),
+            transforms.RandAdjustContrastd(
+                keys="image",
+                prob=1.0,
+                gamma=(0.7, 1.5),
+                invert_image=False,
+                retain_stats=False),
+            transforms.RandRotated(
+                keys=["image", "label"],
+                prob=1.0,
+                range_x=torch.pi,
+                mode=("bilinear", "nearest"),
+                keep_size=True,
+                padding_mode="zeros",
+            ),
             transforms.ToTensord(keys=["image", "label"]),
         ]
     )
+    augmentation_transform.set_random_state(0)
     return augmentation_transform
