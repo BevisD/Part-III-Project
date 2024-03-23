@@ -1,4 +1,4 @@
-from time import perf_counter, sleep
+from time import perf_counter
 from monai import transforms
 import numpy as np
 

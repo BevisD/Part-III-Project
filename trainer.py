@@ -27,7 +27,7 @@ class Trainer:
     post_pred: callable = None
     best_val_acc = 0.0
     epoch = start_epoch
-    grad_scale = False
+    grad_scale: bool = False
 
     def __post_init__(self):
         self.writer = SummaryWriter(log_dir=self.log_dir)
@@ -40,6 +40,7 @@ class Trainer:
         print(f"Saving logs to {self.writer.logdir}")
 
     def train(self):
+        # Save hyper-parameter values
         h_params = {
             "epochs": self.max_epochs,
             "start_epoch": self.start_epoch,
@@ -53,6 +54,10 @@ class Trainer:
         for key, value in h_params.items():
             self.writer.add_text("Hyperparameters", f"{key}: {value}")
 
+        if self.scheduler is not None:
+            self.scheduler.last_epoch = self.start_epoch
+
+        # Start training
         for epoch in range(self.start_epoch, self.max_epochs):
             self.epoch = epoch
             lr = self.optimizer.param_groups[0]["lr"]
@@ -107,7 +112,7 @@ class Trainer:
                 logits = self.model(data)  # B*P 2 X Y Z
                 loss = self.loss_func(logits, target)  # 0-dim tensor
 
-                train_acc, train_not_nans = self.calc_accuracy(target, logits)
+                train_acc, train_not_nans = self.calc_accuracy(y_pred=logits, y=target)
 
                 if self.grad_scale:
                     self.scaler.scale(loss).backward()
@@ -142,15 +147,13 @@ class Trainer:
             for index, batch in enumerate(self.val_loader):
                 data, target = batch["image"], batch["label"]
                 data, target = data.cuda(0), target.cuda(0)  # 1 1 H W D
-
                 with autocast():
                     if self.model_inferer is None:
                         logits = self.model(data)
                     else:
                         logits = self.model_inferer(data)  # 1 C H W D
-
                     val_loss = self.loss_func(logits, target)
-                    val_acc, not_nans = self.calc_accuracy(target, logits)
+                    val_acc, not_nans = self.calc_accuracy(y_pred=logits, y=target)
 
                 epoch_acc += val_acc
                 epoch_loss += val_loss.item()
@@ -168,14 +171,14 @@ class Trainer:
 
         return epoch_loss / len(self.val_loader), epoch_acc / len(self.val_loader)
 
-    def calc_accuracy(self, target, logits):
+    def calc_accuracy(self, y, y_pred):
         if self.post_label is not None:
-            target = self.post_label(target)
+            y = self.post_label(y)
         if self.post_pred is not None:
-            logits = self.post_pred(logits)
+            y_pred = self.post_pred(y_pred)
 
         self.acc_func.reset()
-        self.acc_func(y_pred=logits, y=target)
+        self.acc_func(y_pred=y_pred, y=y)
         acc, val_not_nan = self.acc_func.aggregate()
 
         return acc.item(), int(val_not_nan.item())

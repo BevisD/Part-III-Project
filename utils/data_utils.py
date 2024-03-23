@@ -1,19 +1,13 @@
 import json
 import os
-import time
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torchvision.transforms.functional as TF
-from torchvision.transforms import InterpolationMode
 
 from torch.utils.data import Dataset
 from monai import transforms
 
 from typing import Sequence
-
-from transform_timer import transform_timer
 
 __all__ = ["SegmentationDataset",
            "SegmentationPatchDataset",
@@ -83,7 +77,8 @@ class SegmentationPatchDataset(SegmentationDataset):
                  label_key: str = "label",
                  num_classes: int = 2,
                  ratios: Sequence[float] = None,
-                 transform=None):
+                 transform=None,
+                 random_pad: bool = False):
         super().__init__(data_dir=data_dir,
                          json_file=json_file,
                          data_list_key=data_list_key,
@@ -93,6 +88,7 @@ class SegmentationPatchDataset(SegmentationDataset):
         self.patch_size = (patch_size,) * 3 if isinstance(patch_size, int) else patch_size
         self.patch_batch_size = patch_batch_size
         self.transform = transform
+        self.random_pad = random_pad
         self.cropper = transforms.RandCropByLabelClassesd(
             keys=[image_key, label_key],
             label_key=label_key,
@@ -100,7 +96,8 @@ class SegmentationPatchDataset(SegmentationDataset):
             ratios=ratios if ratios else [1.0] * num_classes,
             num_classes=num_classes,
             num_samples=self.patch_batch_size,
-            warn=False
+            warn=False,
+            allow_smaller=True
         )
 
         self.cropper.set_random_state(0)
@@ -117,12 +114,32 @@ class SegmentationPatchDataset(SegmentationDataset):
                 self.image_key: torch.clone(patch[self.image_key]),
                 self.label_key: torch.clone(patch[self.label_key])
             }
+            # Pad patch if smaller than ROI size
+            patches[i] = self.pad_patch(patch)
 
         # Augmentation
         if self.transform:
             patches = self.transform(patches)
 
         return patches
+
+    def pad_patch(self, patch: dict[str:torch.Tensor, str:torch.Tensor]):
+        shapes = zip(patch[self.image_key].shape[::-1], self.patch_size[::-1])
+        padding = []
+        for shape in shapes:
+            pad = shape[1] - shape[0]
+            if self.random_pad:
+                rand = np.random.randint(pad+1)
+                padding += [rand, pad - rand]
+            else:
+                padding += [0, pad]
+
+        patch = {
+            self.image_key: torch.nn.functional.pad(patch[self.image_key], padding),
+            self.label_key: torch.nn.functional.pad(patch[self.label_key], padding)
+        }
+
+        return patch
 
 
 def get_augmentation_transform(args):

@@ -13,7 +13,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="JSON file creator from csv file")
     parser.add_argument("--csv-file", default=None, type=str, help="csv file containing patient data")
     parser.add_argument("--json-file", default="data.json", type=str, help="json file to store patient data")
-    parser.add_argument("--data-dir", default="data", type=str, help="json file to store patient data")
+    parser.add_argument("--data-dir", default="data", type=str, help="directory containing patient data")
     parser.add_argument("--shuffle", action="store_true", help="shuffle the data or not")
     parser.add_argument("--num-train", type=int, help="number of training datapoints", required=True)
     parser.add_argument("--num-val", type=int, help="number of validation datapoints", required=True)
@@ -59,12 +59,12 @@ def from_csv(args):
     return return_paths
 
 
-def assert_folders(args):
+def assert_folders(args, data_key="data_dir"):
     for sub_dir in [args["pre_dir"], args["post_dir"]]:
-        if not os.path.isdir(os.path.join(args['data_dir'], sub_dir)):
-            raise ValueError(f"No directory called {sub_dir} in {args['data_dir']}")
+        if not os.path.isdir(os.path.join(args[data_key], sub_dir)):
+            raise ValueError(f"No directory called {sub_dir} in {args[data_key]}")
 
-        sub_pth = os.path.join(args['data_dir'], sub_dir)
+        sub_pth = os.path.join(args[data_key], sub_dir)
         for sub_sub_dir in [args["image_dir"], args["label_dir"]]:
             if not os.path.isdir(os.path.join(sub_pth, sub_sub_dir)):
                 raise ValueError(f"No directory called {sub_sub_dir} in {sub_pth}")
@@ -95,16 +95,16 @@ def pair_up_files(images: list[str], labels: list[str],
     return pairs
 
 
-def from_dir(args):
+def from_dir(args, data_key="data_dir"):
     pre_images = glob.glob(os.path.join(args["pre_dir"], args["image_dir"], f"*{args['file_extension']}"),
-                           root_dir=args["data_dir"], recursive=True)
+                           root_dir=args[data_key], recursive=True)
     pre_labels = glob.glob(os.path.join(args["pre_dir"], args["label_dir"], f"*{args['file_extension']}"),
-                           root_dir=args["data_dir"], recursive=True)
+                           root_dir=args[data_key], recursive=True)
 
     post_images = glob.glob(os.path.join(args["post_dir"], args["image_dir"], f"*{args['file_extension']}"),
-                            root_dir=args["data_dir"], recursive=True)
+                            root_dir=args[data_key], recursive=True)
     post_labels = glob.glob(os.path.join(args["post_dir"], args["label_dir"], f"*{args['file_extension']}"),
-                            root_dir=args["data_dir"], recursive=True)
+                            root_dir=args[data_key], recursive=True)
 
     pre_list = pair_up_files(pre_images, pre_labels, image_key=args["image_key"], label_key=args["label_key"])
     post_list = pair_up_files(post_images, post_labels, image_key=args["image_key"], label_key=args["label_key"])
