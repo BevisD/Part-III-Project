@@ -84,6 +84,8 @@ def main(args) -> None:
         # Use self supervised weights (SwinViT weights only)
         if args.load_checkpoint:
             warnings.warn("Using SSL pretrained: --load-checkpoint ignored")
+        else:
+            print("Using SSL pretrained")
         model.load_from(weights)
     else:
         # Use saved weight dict (SwinUNETR weights only)
@@ -168,14 +170,12 @@ def main(args) -> None:
     # trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     #     trainer.optimizer,
     #     T_max=args.max_epochs,
-    #     last_epoch=trainer.start_epoch
     # )
     trainer.scheduler = LinearWarmupCosineAnnealingLR(
         trainer.optimizer,
         warmup_epochs=args.warmup_epochs,
         max_epochs=args.max_epochs,
         warmup_start_lr=args.learning_rate,
-        last_epoch=trainer.start_epoch
     )
 
     trainer.train()
