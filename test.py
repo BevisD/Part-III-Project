@@ -19,7 +19,7 @@ parser.add_argument("--data-dir", type=str, required=True)
 parser.add_argument("--json-file", type=str, required=True)
 parser.add_argument("--pretrained-path", type=str, required=True)
 parser.add_argument("--output-dir", type=str, required=True)
-parser.add_argument("--meta-file", type=str, default="meta.npz")
+parser.add_argument("--meta-file", type=str, default="meta.pkl")
 parser.add_argument("--data-list-key", type=str, default="validation")
 parser.add_argument("--image-key", type=str, default="image")
 parser.add_argument("--label-key", type=str, default="label")
@@ -70,12 +70,12 @@ def main(args):
     )
     model.cuda(0)
 
-    acc_func = DiceMetric(get_not_nans=True)
-    post_pred = post_pred_transform(threshold=0.5)
+    acc_func = DiceMetric(include_background=False, get_not_nans=True)
+    post_pred = lambda x: torch.argmax(x, dim=1, keepdim=True)
 
     header, affine = None, None
     if args.save_outputs:
-        with open(os.path.join(args.data_dir, "meta.pkl"), "rb") as file:
+        with open(os.path.join(args.data_dir, args.meta_file), "rb") as file:
             pickle_dict = pickle.load(file)
             header = pickle_dict["header"]
             affine = pickle_dict["affine"]
@@ -87,11 +87,9 @@ def main(args):
             # data  1 1 H W D - torch.HalfTensor
             # label 1 1 H W D - torch.CharTensor
             # filename - str
-
             data, target = data.cuda(0), target.cuda(0)
 
-            print(f"Inference on {filename}")
-
+            print(f"Inference on {filename}\t", end="")
             with autocast():
                 logits = model_inferer(data)  # 1 2 H W D
             out = post_pred(logits)
@@ -102,11 +100,11 @@ def main(args):
 
             results.append({
                 "Filename": filename,
-                "Accuracy": acc,
+                "Accuracy": acc.item(),
                 "NaN": not bool(not_nan)
             })
 
-            print(f"Accuracy: {acc.item():.5f}{'' if not_nan else ' NaN'}", end="")
+            print(f"Accuracy: {acc.item():.5f}{'' if not_nan else ' NaN'}")
 
             # Save to .nii.gz
             file_path = pathlib.Path(filename)
@@ -114,7 +112,7 @@ def main(args):
             if args.save_outputs:
                 (args.output_dir / pathlib.Path(filename)).parent.mkdir(parents=True, exist_ok=True)
                 nib.save(
-                    nib.Nifti1Image(out.cpu().numpy().astype(np.int8), affine, header),
+                    nib.Nifti1Image(out.cpu().numpy().astype(np.int8)[0, 0], affine, header),
                     os.path.join(args.output_dir, nii_filename)
                 )
 

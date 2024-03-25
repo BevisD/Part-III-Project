@@ -2,14 +2,14 @@ from time import perf_counter
 from monai import transforms
 import numpy as np
 
-__all__ = ["transform_timer"]
+__all__ = ["class_timer"]
 
 
-def transform_timer(cls, verbose=True):
+def class_timer(cls, verbose=False):
     class WrappedClass(cls):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
-            self.cls_name = cls.__name__
+            self.name = cls.__name__
             self.run_times = []
             self.run_counts = 0
             self.verbose = verbose
@@ -22,7 +22,7 @@ def transform_timer(cls, verbose=True):
             t_2 = perf_counter()
 
             if self.verbose:
-                print(f"{self.cls_name}: {t_2 - t_1:.5f}s")
+                print(f"{self.name}: {t_2 - t_1:.5f}s")
 
             self.run_times.append(t_2 - t_1)
             return output
@@ -35,10 +35,9 @@ def transform_timer(cls, verbose=True):
 
         def print_stats(self):
             avg, std = self.get_stats()
-            print(f"{self.cls_name}: Runs: {self.run_counts}, Avg: {avg:.5f}s, Std: {std:.5f}s")
+            print(f"{self.name}: Runs: {self.run_counts}, Avg: {avg:.5f}s, Std: {std:.5f}s")
 
     return WrappedClass
-
 
 class Identity(transforms.MapTransform):
     def __init__(self, keys: list[str], allow_missing_keys=False) -> None:
@@ -51,20 +50,3 @@ class Identity(transforms.MapTransform):
             else:
                 raise ValueError(f"Key '{key}' is not in data")
         return data
-
-
-def main():
-    data = {
-        "image": np.random.randn(3,3,3),
-        "label": np.random.randint(0, 2, (3,3,3))
-    }
-
-    print(data)
-    IdentityTimed = transform_timer(Identity)
-    transform = IdentityTimed(keys=["image", "label"])
-    data = transform(data)
-    print(data)
-
-
-if __name__ == '__main__':
-    main()

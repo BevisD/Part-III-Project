@@ -1,17 +1,19 @@
 import json
 import os
+from typing import Sequence
 
 import numpy as np
 import torch
-
 from torch.utils.data import Dataset
 from monai import transforms
+from monai.data import DataLoader
 
-from typing import Sequence
+from .affine import RandAffineTransformd
 
 __all__ = ["SegmentationDataset",
            "SegmentationPatchDataset",
-           "get_augmentation_transform"]
+           "get_intensity_aug",
+           "get_affine_aug"]
 
 
 class SegmentationDataset(Dataset):
@@ -38,24 +40,25 @@ class SegmentationDataset(Dataset):
         return len(self.data_list)
 
     def __getitem__(self, idx):
-        # Keep images in disk memory
-        data = self.load_mmap(idx)
+        # Don't use mmap as loading whole image
+        data = self.load_data(idx, mmap=False)
 
-        # Load data to RAM
-        data[self.image_key] = data[self.image_key].copy()
-        data[self.label_key] = data[self.label_key].copy()
+        # Convert from numpy.ndarray to torch.Tensor
+        data[self.image_key] = torch.as_tensor(data[self.image_key])
+        data[self.label_key] = torch.as_tensor(data[self.label_key])
 
         if self.load_meta:
-            data["filename"] = self.data_list[idx][self.image_key]
+            data["filename"] = self.data_list[idx][self.label_key]
 
         return data
 
-    def load_mmap(self, idx):
+    def load_data(self, idx, mmap=True):
         # Keep images in disk memory
         image_path = os.path.join(self.data_dir, self.data_list[idx][self.image_key])
         label_path = os.path.join(self.data_dir, self.data_list[idx][self.label_key])
-        image = np.load(image_path, mmap_mode="r")
-        label = np.load(label_path, mmap_mode="r")
+
+        image = np.load(image_path, mmap_mode="r" if mmap else None)
+        label = np.load(label_path, mmap_mode="r" if mmap else None)
 
         image = image.reshape((1, *image.shape))
         label = label.reshape((1, *label.shape))
@@ -78,7 +81,8 @@ class SegmentationPatchDataset(SegmentationDataset):
                  num_classes: int = 2,
                  ratios: Sequence[float] = None,
                  transform=None,
-                 random_pad: bool = False):
+                 random_pad: bool = False,
+                 no_pad: bool = False):
         super().__init__(data_dir=data_dir,
                          json_file=json_file,
                          data_list_key=data_list_key,
@@ -89,6 +93,7 @@ class SegmentationPatchDataset(SegmentationDataset):
         self.patch_batch_size = patch_batch_size
         self.transform = transform
         self.random_pad = random_pad
+        self.no_pad = no_pad
         self.cropper = transforms.RandCropByLabelClassesd(
             keys=[image_key, label_key],
             label_key=label_key,
@@ -99,12 +104,12 @@ class SegmentationPatchDataset(SegmentationDataset):
             warn=False,
             allow_smaller=True
         )
-
         self.cropper.set_random_state(0)
 
     def __getitem__(self, idx):
+
         # Keep images in disk memory
-        data = self.load_mmap(idx)
+        data = self.load_data(idx)
 
         patches = self.cropper(data)
 
@@ -115,7 +120,8 @@ class SegmentationPatchDataset(SegmentationDataset):
                 self.label_key: torch.clone(patch[self.label_key])
             }
             # Pad patch if smaller than ROI size
-            patches[i] = self.pad_patch(patch)
+            if not self.no_pad:
+                patches[i] = self.pad_patch(patch)
 
         # Augmentation
         if self.transform:
@@ -129,7 +135,7 @@ class SegmentationPatchDataset(SegmentationDataset):
         for shape in shapes:
             pad = shape[1] - shape[0]
             if self.random_pad:
-                rand = np.random.randint(pad+1)
+                rand = np.random.randint(pad + 1)
                 padding += [rand, pad - rand]
             else:
                 padding += [0, pad]
@@ -142,12 +148,9 @@ class SegmentationPatchDataset(SegmentationDataset):
         return patch
 
 
-def get_augmentation_transform(args):
+def get_intensity_aug(args):
     augmentation_transform = transforms.Compose(
         [
-            transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=0),
-            transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=1),
-            transforms.RandFlipd(keys=["image", "label"], prob=args.rand_flip_prob, spatial_axis=2),
             transforms.RandScaleIntensityd(keys="image", factors=0.1, prob=args.rand_scale_prob),
             transforms.RandShiftIntensityd(keys="image", offsets=0.1, prob=args.rand_shift_prob),
             transforms.RandGaussianNoised(keys="image", prob=args.rand_noise_prob, mean=0.0, std=0.05),
@@ -164,16 +167,69 @@ def get_augmentation_transform(args):
                 gamma=(0.7, 1.5),
                 invert_image=False,
                 retain_stats=False),
-            transforms.RandRotated(
-                keys=["image", "label"],
-                prob=args.rand_rotate_prob,
-                range_x=torch.pi,
-                mode=("bilinear", "nearest"),
-                keep_size=True,
-                padding_mode="zeros",
-            ),
             transforms.ToTensord(keys=["image", "label"]),
         ]
     )
     augmentation_transform.set_random_state(0)
     return augmentation_transform
+
+
+def get_affine_aug():
+    affine_transform = RandAffineTransformd(
+        keys=["image", "label"],
+        mode=["bilinear", "nearest"],
+        flips=[0.5, 0.5, 0.5],
+        thetas=[(-torch.pi, torch.pi),
+                (-0.1, 0.1),
+                (-0.1, 0.1)],
+        axes=[(0, 1),
+              (0, 2),
+              (1, 2)],
+        scales=[(0.8, 1.1),
+                (0.8, 1.1),
+                (1.0, 1.0)],
+        shears=[(-0.15, 0.15),
+                (-0.15, 0.15),
+                (-0.10, 0.10)]
+    )
+    return affine_transform
+
+
+if __name__ == '__main__':
+    import time
+
+
+    class NameSpace:
+        def __init__(self):
+            pass
+
+
+    args = NameSpace()
+    args.rand_scale_prob = 1.0
+    args.rand_shift_prob = 1.0
+    args.rand_noise_prob = 1.0
+    args.rand_smooth_prob = 1.0
+    args.rand_contrast_prob = 1.0
+
+    intensity_transform = get_intensity_aug(args)
+    affine_transform = get_affine_aug()
+
+    patches = 4
+
+    dataset = SegmentationPatchDataset(
+        data_dir="numpys",
+        json_file="data.json",
+        data_list_key="training",
+        patch_size=(32, 256, 256),
+        patch_batch_size=patches,
+        no_pad=True,
+        transform=intensity_transform
+    )
+
+    dataloader = DataLoader(dataset, batch_size=3)
+
+    for _, batch in enumerate(dataloader):
+        t = time.perf_counter()
+        batch = affine_transform(batch)
+        print(time.perf_counter() -t)
+

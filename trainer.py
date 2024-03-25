@@ -28,6 +28,7 @@ class Trainer:
     best_val_acc = 0.0
     epoch = start_epoch
     grad_scale: bool = False
+    batch_augmentation: callable = None
 
     def __post_init__(self):
         self.writer = SummaryWriter(log_dir=self.log_dir)
@@ -103,6 +104,9 @@ class Trainer:
         epoch_loss = 0.0
         epoch_acc = 0.0
         for index, batch in enumerate(self.train_loader):
+            if self.batch_augmentation is not None:
+                batch = self.batch_augmentation(batch)
+
             data, target = batch["image"], batch["label"]
             data, target = data.cuda(0), target.cuda(0)
 

@@ -7,15 +7,15 @@ from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric
 from monai.data import DataLoader
 
-from utils import SwinInferer, SegmentationPatchDataset, SegmentationDataset, get_augmentation_transform
+from utils import SwinInferer, SegmentationPatchDataset, SegmentationDataset, get_intensity_aug, get_affine_aug
 from trainer import Trainer
 from optimizers import LinearWarmupCosineAnnealingLR
 
 parser = argparse.ArgumentParser()
 # Model Architecture
-parser.add_argument("--roi-size-x", type=int, default=96)
-parser.add_argument("--roi-size-y", type=int, default=96)
-parser.add_argument("--roi-size-z", type=int, default=96)
+parser.add_argument("--roi-size-x", type=int, default=32)
+parser.add_argument("--roi-size-y", type=int, default=256)
+parser.add_argument("--roi-size-z", type=int, default=256)
 parser.add_argument("--in-channels", type=int, default=1)
 parser.add_argument("--out-channels", type=int, default=2)
 parser.add_argument("--feature-size", type=int, default=48)
@@ -36,13 +36,11 @@ parser.add_argument("--batch-size", type=int, default=1)
 parser.add_argument("--sw-batch-size", type=int, default=4)
 parser.add_argument("--val-every", type=int, default=4)
 parser.add_argument("--workers", type=int, default=0)
-parser.add_argument("--rand-flip-prob", type=float, default=0.5)
 parser.add_argument("--rand-scale-prob", type=float, default=0.15)
 parser.add_argument("--rand-shift-prob", type=float, default=0.15)
 parser.add_argument("--rand-noise-prob", type=float, default=0.15)
 parser.add_argument("--rand-smooth-prob", type=float, default=0.2)
 parser.add_argument("--rand-contrast-prob", type=float, default=0.15)
-parser.add_argument("--rand-rotate-prob", type=float, default=0.2)
 parser.add_argument("--grad-scaler", action="store_true")
 
 # Paths
@@ -58,13 +56,15 @@ def main(args) -> None:
     torch.cuda.set_device(0)
     torch.backends.cudnn.benchmark = True
 
-    augmentation_transform = get_augmentation_transform(args)
+    intensity_transform = get_intensity_aug(args)
+    affine_transform = get_affine_aug(args)
 
     trainer = Trainer(
         log_dir=args.log_dir,
         max_epochs=args.max_epochs,
         val_every=args.val_every,
-        grad_scale=args.grad_scaler
+        grad_scale=args.grad_scaler,
+        batch_augmentation=affine_transform
     )
 
     # Load model
@@ -105,8 +105,8 @@ def main(args) -> None:
         data_list_key="training",
         patch_size=(args.roi_size_x, args.roi_size_y, args.roi_size_z),
         patch_batch_size=args.sw_batch_size,
-        transform=augmentation_transform,
-        random_pad=True
+        transform=intensity_transform,
+        no_pad=True
     )
 
     val_dataset = SegmentationDataset(
