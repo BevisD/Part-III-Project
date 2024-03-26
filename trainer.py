@@ -49,7 +49,8 @@ class Trainer:
             "optimizer": self.optimizer.__class__.__name__,
             "accuracy": self.acc_func.__class__.__name__,
             "loss": self.loss_func.__class__.__name__,
-            "val_every": self.val_every
+            "val_every": self.val_every,
+            "grad_scaler": bool(self.scaler)
         }
 
         for key, value in h_params.items():
@@ -61,13 +62,17 @@ class Trainer:
         # Start training
         for epoch in range(self.start_epoch, self.max_epochs):
             self.epoch = epoch
+
+            # Record learning rate at this epoch
             lr = self.optimizer.param_groups[0]["lr"]
             print(f"{time.ctime()} Epoch: {epoch} Learning Rate: {lr:.6f}")
             self.writer.add_scalar("learning_rate", lr, epoch)
             epoch_time = time.perf_counter()
 
+            # Run training
             train_loss, train_acc = self.train_epoch()
 
+            # Record training metrics
             curr_epoch_str = str(epoch).rjust(len(str(self.max_epochs - 1)), "0")
             print(f"Train Epoch {curr_epoch_str}/{self.max_epochs - 1}  "
                   f"Mean Loss: {train_loss:.4f}  "
@@ -75,24 +80,30 @@ class Trainer:
             self.writer.add_scalar("train_loss", train_loss, epoch)
             self.writer.add_scalar("train_acc", train_acc, epoch)
 
+            # Maybe evaluate validation set
             if (epoch + 1) % self.val_every == 0:
                 val_loss, val_acc = self.val_epoch()
 
+                # Record validation metrics
                 print(f"Validate Epoch {curr_epoch_str}/{self.max_epochs - 1}  "
                       f"Mean Acc: {val_acc:.4f}  "
                       f"Time: {time.perf_counter() - epoch_time:.2f}s")
                 self.writer.add_scalar("val_acc", val_acc, epoch)
                 self.writer.add_scalar("val_loss", val_loss, epoch)
 
+                # Save model if improved
                 if val_acc > self.best_val_acc:
                     print(f"New highest accuracy {self.best_val_acc:.4f} --> {val_acc:.4f}")
                     self.best_val_acc = val_acc
 
                     self.save_checkpoint(filename="model_best.pt")
 
+            # Step learning rate
             if self.scheduler is not None:
                 self.scheduler.step()
 
+            # Save model otherwise
+            # If loaded from checkpoint, accuracy may not improve and would otherwise not be save
             self.save_checkpoint(filename="model_final.pt")
 
         print(f"Training Finished! Best Accuracy: {self.best_val_acc:.4f}")
@@ -104,6 +115,7 @@ class Trainer:
         epoch_loss = 0.0
         epoch_acc = 0.0
         for index, batch in enumerate(self.train_loader):
+            # Batch augmentation acts on dict of Tensors - B 1 H W D (Patch Size)
             if self.batch_augmentation is not None:
                 batch = self.batch_augmentation(batch)
 
@@ -113,11 +125,15 @@ class Trainer:
             with autocast():
                 self.optimizer.zero_grad()
 
-                logits = self.model(data)  # B*P 2 X Y Z
+                logits = self.model(data)  # B 2 H W D (Patch Size)
                 loss = self.loss_func(logits, target)  # 0-dim tensor
 
+                # Calculate metrics for train set
+                # TODO - only record train metrics some of the time - or only some of the train data
                 train_acc, train_not_nans = self.calc_accuracy(y_pred=logits, y=target)
 
+                # Update model
+                # Use gradient scaling to prevent underflow
                 if self.grad_scale:
                     self.scaler.scale(loss).backward()
                     self.scaler.step(self.optimizer)
@@ -126,6 +142,7 @@ class Trainer:
                     loss.backward()
                     self.optimizer.step()
 
+            # Update mean metrics
             mean_batch_loss = loss.item()
             epoch_loss += mean_batch_loss
             epoch_acc += train_acc
@@ -150,15 +167,18 @@ class Trainer:
         with torch.no_grad():
             for index, batch in enumerate(self.val_loader):
                 data, target = batch["image"], batch["label"]
-                data, target = data.cuda(0), target.cuda(0)  # 1 1 H W D
+                data, target = data.cuda(0), target.cuda(0)  # 1 1 H W D (Image Size)
                 with autocast():
                     if self.model_inferer is None:
-                        logits = self.model(data)
+                        logits = self.model(data)  # 1 C H W D (Image Size)
                     else:
-                        logits = self.model_inferer(data)  # 1 C H W D
+                        logits = self.model_inferer(data)  # 1 C H W D (Image Size)
+
+                    # Calculate validation metrics
                     val_loss = self.loss_func(logits, target)
                     val_acc, not_nans = self.calc_accuracy(y_pred=logits, y=target)
 
+                # Update mean metrics
                 epoch_acc += val_acc
                 epoch_loss += val_loss.item()
 
@@ -176,11 +196,14 @@ class Trainer:
         return epoch_loss / len(self.val_loader), epoch_acc / len(self.val_loader)
 
     def calc_accuracy(self, y, y_pred):
+        # Transform logits and target for accuracy function
+        # e.g. Argmax, Softmax
         if self.post_label is not None:
             y = self.post_label(y)
         if self.post_pred is not None:
             y_pred = self.post_pred(y_pred)
 
+        # Calculate Accuracy
         self.acc_func.reset()
         self.acc_func(y_pred=y_pred, y=y)
         acc, val_not_nan = self.acc_func.aggregate()

@@ -65,7 +65,7 @@ class WarmupCosineSchedule(LambdaLR):
     """
 
     def __init__(
-        self, optimizer: Optimizer, warmup_steps: int, t_total: int, cycles: float = 0.5, last_epoch: int = -1
+            self, optimizer: Optimizer, warmup_steps: int, t_total: int, cycles: float = 0.5, last_epoch: int = -1
     ) -> None:
         """
         Args:
@@ -91,13 +91,13 @@ class WarmupCosineSchedule(LambdaLR):
 
 class LinearWarmupCosineAnnealingLR(_LRScheduler):
     def __init__(
-        self,
-        optimizer: Optimizer,
-        warmup_epochs: int,
-        max_epochs: int,
-        warmup_start_lr: float = 0.0,
-        eta_min: float = 0.0,
-        last_epoch: int = -1,
+            self,
+            optimizer: Optimizer,
+            warmup_epochs: int,
+            max_epochs: int,
+            warmup_start_lr: float = 0.0,
+            eta_min: float = 0.0,
+            last_epoch: int = -1,
     ) -> None:
         """
         Args:
@@ -143,10 +143,10 @@ class LinearWarmupCosineAnnealingLR(_LRScheduler):
         return [
             (1 + math.cos(math.pi * (self.last_epoch - self.warmup_epochs) / (self.max_epochs - self.warmup_epochs)))
             / (
-                1
-                + math.cos(
-                    math.pi * (self.last_epoch - self.warmup_epochs - 1) / (self.max_epochs - self.warmup_epochs)
-                )
+                    1
+                    + math.cos(
+                math.pi * (self.last_epoch - self.warmup_epochs - 1) / (self.max_epochs - self.warmup_epochs)
+            )
             )
             * (group["lr"] - self.eta_min)
             + self.eta_min

@@ -56,15 +56,15 @@ def main(args) -> None:
     torch.cuda.set_device(0)
     torch.backends.cudnn.benchmark = True
 
-    intensity_transform = get_intensity_aug(args)
-    affine_transform = get_affine_aug(args)
+    intensity_aug = get_intensity_aug(args)
+    affine_aug = get_affine_aug()
 
     trainer = Trainer(
         log_dir=args.log_dir,
         max_epochs=args.max_epochs,
         val_every=args.val_every,
         grad_scale=args.grad_scaler,
-        batch_augmentation=affine_transform
+        batch_augmentation=affine_aug
     )
 
     # Load model
@@ -105,8 +105,8 @@ def main(args) -> None:
         data_list_key="training",
         patch_size=(args.roi_size_x, args.roi_size_y, args.roi_size_z),
         patch_batch_size=args.sw_batch_size,
-        transform=intensity_transform,
-        no_pad=True
+        transform=intensity_aug,  # Only intensity as affine augmentation done on batch in train loop
+        no_pad=True  # No padding needed as patch smaller than image (slight performance increase)
     )
 
     val_dataset = SegmentationDataset(
@@ -175,7 +175,7 @@ def main(args) -> None:
         trainer.optimizer,
         warmup_epochs=args.warmup_epochs,
         max_epochs=args.max_epochs,
-        warmup_start_lr=args.learning_rate,
+        warmup_start_lr=0.0,
     )
 
     trainer.train()

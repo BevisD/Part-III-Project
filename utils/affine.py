@@ -83,9 +83,9 @@ class RandAffineTransformd(transforms.MapTransform):
         self.shears = shears
         self.mode = [mode] * len(self.keys) if isinstance(mode, str) else mode
         self.axes = axes
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device, self.type = ("cuda", torch.half) if torch.cuda.is_available() else ("cpu", torch.float32)
 
-    def gen_rand_affine(self, N=1):
+    def gen_rand_affine(self, N: int = 1):
         affine = identity_affine(dim=3, N=N)
 
         # Flip Image
@@ -114,12 +114,12 @@ class RandAffineTransformd(transforms.MapTransform):
     def __call__(self, batch: dict) -> dict:
         size = batch[self.keys[0]].shape
         N = size[0]
-        affine = self.gen_rand_affine(N=N).to(self.device)
+        affine = self.gen_rand_affine(N=N).to(self.type).to(self.device)
         grid = F.affine_grid(affine, size, align_corners=True)
 
         for key, mode in zip(self.keys, self.mode):
             if key in batch:
-                batch[key] = batch[key].to(self.device)
+                batch[key] = batch[key].to(self.type).to(self.device)
                 batch[key] = F.grid_sample(batch[key],
                                            grid,
                                            align_corners=True,

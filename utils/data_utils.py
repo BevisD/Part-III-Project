@@ -52,7 +52,7 @@ class SegmentationDataset(Dataset):
 
         return data
 
-    def load_data(self, idx, mmap=True):
+    def load_data(self, idx: int, mmap: bool = True):
         # Keep images in disk memory
         image_path = os.path.join(self.data_dir, self.data_list[idx][self.image_key])
         label_path = os.path.join(self.data_dir, self.data_list[idx][self.label_key])
@@ -193,43 +193,3 @@ def get_affine_aug():
                 (-0.10, 0.10)]
     )
     return affine_transform
-
-
-if __name__ == '__main__':
-    import time
-
-
-    class NameSpace:
-        def __init__(self):
-            pass
-
-
-    args = NameSpace()
-    args.rand_scale_prob = 1.0
-    args.rand_shift_prob = 1.0
-    args.rand_noise_prob = 1.0
-    args.rand_smooth_prob = 1.0
-    args.rand_contrast_prob = 1.0
-
-    intensity_transform = get_intensity_aug(args)
-    affine_transform = get_affine_aug()
-
-    patches = 4
-
-    dataset = SegmentationPatchDataset(
-        data_dir="numpys",
-        json_file="data.json",
-        data_list_key="training",
-        patch_size=(32, 256, 256),
-        patch_batch_size=patches,
-        no_pad=True,
-        transform=intensity_transform
-    )
-
-    dataloader = DataLoader(dataset, batch_size=3)
-
-    for _, batch in enumerate(dataloader):
-        t = time.perf_counter()
-        batch = affine_transform(batch)
-        print(time.perf_counter() -t)
-
