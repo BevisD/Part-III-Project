@@ -40,11 +40,11 @@ class Trainer:
             self.scaler = GradScaler()
 
         # Create logger
-        self.logger = logging.getLogger('my_logger')
+        self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.DEBUG)
 
         # Create file handler
-        file_handler = logging.FileHandler('my_log_file.log')
+        file_handler = logging.FileHandler('errors.log')
 
         # Set the logging level for the file handler
         file_handler.setLevel(logging.DEBUG)
