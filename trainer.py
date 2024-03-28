@@ -1,6 +1,7 @@
 import time
 import os
 from dataclasses import dataclass
+import logging
 
 import torch
 import torch.nn as nn
@@ -38,6 +39,23 @@ class Trainer:
             print("Using Gradient Scaling")
             self.scaler = GradScaler()
 
+        # Create logger
+        self.logger = logging.getLogger('my_logger')
+        self.logger.setLevel(logging.DEBUG)
+
+        # Create file handler
+        file_handler = logging.FileHandler('my_log_file.log')
+
+        # Set the logging level for the file handler
+        file_handler.setLevel(logging.DEBUG)
+
+        # Create formatter and add it to the file handler
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+
+        # Add file handler to the logger
+        self.logger.addHandler(file_handler)
+
         print(f"Saving logs to {self.writer.logdir}")
 
     def train(self):
@@ -55,9 +73,6 @@ class Trainer:
 
         for key, value in h_params.items():
             self.writer.add_text("Hyperparameters", f"{key}: {value}")
-
-        if self.scheduler is not None:
-            self.scheduler.last_epoch = self.start_epoch
 
         # Start training
         for epoch in range(self.start_epoch, self.max_epochs):
@@ -127,6 +142,9 @@ class Trainer:
 
                 logits = self.model(data)  # B 2 H W D (Patch Size)
                 loss = self.loss_func(logits, target)  # 0-dim tensor
+
+                if not self.assert_finite(loss, index):
+                    continue
 
                 # Calculate metrics for train set
                 # TODO - only record train metrics some of the time - or only some of the train data
@@ -221,3 +239,10 @@ class Trainer:
         filename = os.path.join(self.log_dir, filename)
         torch.save(save_dict, filename)
         print("Saving checkpoint", filename)
+
+    def assert_finite(self, loss, batch_num):
+        if loss.isfinite():
+            return True
+
+        self.logger.error(f"Epoch: {self.epoch}, Batch: {batch_num}, Loss is {loss.item()}")
+        return False

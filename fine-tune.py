@@ -79,6 +79,8 @@ def main(args) -> None:
         use_checkpoint=args.grad_checkpoint
     )
     weights = torch.load(args.pretrained_path)
+    optim_weights = None
+    sched_weights = None
 
     if args.use_ssl_pretrained:
         # Use self supervised weights (SwinViT weights only)
@@ -97,12 +99,16 @@ def main(args) -> None:
             if "best_acc" in weights:
                 trainer.best_val_acc = weights["best_acc"]
             print(f"Resuming training from epoch {trainer.start_epoch} best-acc {trainer.best_val_acc:.5f}")
+            if "optimizer" in weights:
+                optim_weights = weights["optimizer"]
+            if "scheduler" in weights:
+                sched_weights = weights["scheduler"]
 
     # Datasets
     train_dataset = SegmentationPatchDataset(
         data_dir=args.data_dir,
         json_file=args.json_file,
-        data_list_key="training",
+        data_list_key=["training", "test"],
         patch_size=(args.roi_size_x, args.roi_size_y, args.roi_size_z),
         patch_batch_size=args.sw_batch_size,
         transform=intensity_aug,  # Only intensity as affine augmentation done on batch in train loop
@@ -177,6 +183,14 @@ def main(args) -> None:
         max_epochs=args.max_epochs,
         warmup_start_lr=0.0,
     )
+
+    if optim_weights is not None:
+        trainer.optimizer.load_state_dict(optim_weights)
+        print(f"Loading Optimiser: Learning Rate is {trainer.optimizer.param_groups[0]['lr']}")
+
+    if sched_weights is not None:
+        trainer.scheduler.load_state_dict(sched_weights)
+        print(f"Loading Scheduler: Next epoch is {trainer.scheduler.last_epoch + 1}")
 
     trainer.train()
 
