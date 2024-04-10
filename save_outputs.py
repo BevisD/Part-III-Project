@@ -12,7 +12,7 @@ from monai.networks.nets import SwinUNETR
 from monai.data import DataLoader
 from monai.metrics import DiceMetric
 
-from utils import SegmentationDataset, SwinInferer, post_pred_transform
+from utils import SegmentationDataset, SwinInferer
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--data-dir", type=str, required=True)
@@ -25,7 +25,9 @@ parser.add_argument("--image-key", type=str, default="image")
 parser.add_argument("--label-key", type=str, default="label")
 parser.add_argument("--save-outputs", action="store_true")
 
-parser.add_argument("--roi-size", type=int, default=96)
+parser.add_argument("--roi-size-x", type=int, default=32)
+parser.add_argument("--roi-size-y", type=int, default=256)
+parser.add_argument("--roi-size-z", type=int, default=256)
 parser.add_argument("--in-channels", type=int, default=1)
 parser.add_argument("--out-channels", type=int, default=2)
 parser.add_argument("--feature-size", type=int, default=48)
@@ -37,7 +39,7 @@ parser.add_argument("--workers", type=int, default=0)
 
 def main(args):
     model = SwinUNETR(
-        img_size=args.roi_size,
+        img_size=(args.roi_size_x, args.roi_size_y, args.roi_size_z),
         in_channels=args.in_channels,
         out_channels=args.out_channels,
         feature_size=args.feature_size
@@ -64,13 +66,13 @@ def main(args):
 
     model_inferer = SwinInferer(
         model,
-        roi_size=args.roi_size,
+        roi_size=(args.roi_size_x, args.roi_size_y, args.roi_size_z),
         sw_batch_size=args.sw_batch_size,
         overlap=args.infer_overlap
     )
     model.cuda(0)
 
-    acc_func = DiceMetric(include_background=False, get_not_nans=True)
+    acc_func = DiceMetric(include_background=False, get_not_nans=True, num_classes=args.out_channels)
     post_pred = lambda x: torch.argmax(x, dim=1, keepdim=True)
 
     header, affine = None, None
@@ -81,6 +83,7 @@ def main(args):
             affine = pickle_dict["affine"]
 
     results = []
+    model.eval()
     with torch.no_grad():
         for i, batch in enumerate(test_loader):
             data, target, filename = batch["image"], batch["label"], batch["filename"][0]
@@ -107,9 +110,9 @@ def main(args):
             print(f"Accuracy: {acc.item():.5f}{'' if not_nan else ' NaN'}")
 
             # Save to .nii.gz
-            file_path = pathlib.Path(filename)
-            nii_filename = file_path.parent / (file_path.stem + ".nii.gz")
             if args.save_outputs:
+                file_path = pathlib.Path(filename)
+                nii_filename = file_path.parent / (file_path.stem + ".nii.gz")
                 (args.output_dir / pathlib.Path(filename)).parent.mkdir(parents=True, exist_ok=True)
                 nib.save(
                     nib.Nifti1Image(out.cpu().numpy().astype(np.int8)[0, 0], affine, header),

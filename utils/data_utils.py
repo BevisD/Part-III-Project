@@ -6,7 +6,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from monai import transforms
-from monai.data import DataLoader
 
 from .affine import RandAffineTransformd
 
@@ -19,21 +18,28 @@ __all__ = ["SegmentationDataset",
 class SegmentationDataset(Dataset):
     def __init__(self, data_dir: str,
                  json_file: str,
-                 data_list_key: str,
+                 data_list_key: str | Sequence[str],
                  image_key: str = "image",
                  label_key: str = "label",
+                 transform=None,
                  load_meta: bool = False):
         self.image_key = image_key
         self.label_key = label_key
         self.data_dir = data_dir
+        self.transform = transform
         self.load_meta = load_meta
 
+        self.data_list = []
         json_path = os.path.join(data_dir, json_file)
         with open(json_path, "r") as fp:
             data = json.load(fp)
-            if data_list_key not in data:
-                raise ValueError(f"key '{data_list_key}' not in data")
 
+        if isinstance(data_list_key, (list, tuple)):
+            for key in data_list_key:
+                if key not in data:
+                    raise ValueError(f"key '{data_list_key}' not in data")
+                self.data_list += data[key]
+        else:
             self.data_list = data[data_list_key]
 
     def __len__(self):
@@ -46,6 +52,9 @@ class SegmentationDataset(Dataset):
         # Convert from numpy.ndarray to torch.Tensor
         data[self.image_key] = torch.as_tensor(data[self.image_key])
         data[self.label_key] = torch.as_tensor(data[self.label_key])
+
+        if self.transform is not None:
+            data = self.transform(data)
 
         if self.load_meta:
             data["filename"] = self.data_list[idx][self.label_key]
@@ -73,7 +82,7 @@ class SegmentationDataset(Dataset):
 class SegmentationPatchDataset(SegmentationDataset):
     def __init__(self, data_dir: str,
                  json_file: str,
-                 data_list_key: str,
+                 data_list_key: str | Sequence[str],
                  patch_size: int | Sequence[int],
                  patch_batch_size: int,
                  image_key: str = "image",
@@ -174,22 +183,108 @@ def get_intensity_aug(args):
     return augmentation_transform
 
 
-def get_affine_aug():
+def get_affine_aug(
+        flips=(0.5, 0.5, 0.5),
+        theta_x=(-torch.pi, torch.pi),
+        theta_y=(-0.1, 0.1),
+        theta_z=(-0.1, 0.1),
+        scale_x=(0.9, 1.0),
+        scale_y=(0.7, 1.1),
+        scale_z=(0.7, 1.1),
+        shear_yz=(-0.15, 0.15),
+        shear_xy=(-0.10, 0.10),
+        shear_xz=(-0.10, 0.10),
+):
     affine_transform = RandAffineTransformd(
         keys=["image", "label"],
         mode=["bilinear", "nearest"],
-        flips=[0.5, 0.5, 0.5],
-        thetas=[(-torch.pi, torch.pi),
-                (-0.1, 0.1),
-                (-0.1, 0.1)],
+        flips=flips,
+        thetas=[theta_x,
+                theta_y,
+                theta_z],
         axes=[(0, 1),
               (0, 2),
               (1, 2)],
-        scales=[(0.8, 1.1),
-                (0.8, 1.1),
-                (1.0, 1.0)],
-        shears=[(-0.15, 0.15),
-                (-0.15, 0.15),
-                (-0.10, 0.10)]
+        scales=[scale_z,
+                scale_y,
+                scale_x],
+        shears=[shear_yz,
+                shear_xy,
+                shear_xz]
     )
     return affine_transform
+
+def main():
+    from monai.data import DataLoader
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import ListedColormap
+
+    cmap = {
+        1: ListedColormap(["red"]),
+        2: ListedColormap(["blue"]),
+    }
+
+    AXIS = 2
+
+    config_map = {
+        0: {"aspect": 1.0, "index": 16, "figsize": (8, 8)},
+        1: {"aspect": 5.0 / 0.8, "index": 128, "figsize": (10, 8)},
+        2: {"aspect": 5.0 / 0.8, "index": 128, "figsize": (10, 8)},
+    }
+
+    CONFIG = config_map[AXIS]
+    print(CONFIG)
+
+    transform = get_affine_aug(
+        flips=(0.5, 0.5, 0.5),
+        scale_x=(0.9, 1.0),
+        scale_y=(0.7, 1.0),
+        scale_z=(0.7, 1.0),
+        theta_x=(-3.14, 3.14),
+        theta_y=(-0.1, 0.1),
+        theta_z=(-0.1, 0.1),
+        shear_yz=(-0.15, 0.15),
+        shear_xy=(-0.1, 0.1),
+        shear_xz=(-0.1, 0.1),
+    )
+
+    def plot_image_label(image, label, ax):
+        ax.imshow(image, cmap='gray')
+
+        for key, color in cmap.items():
+            ax.imshow(label == key, cmap=cmap[key], alpha=0.4 * (label == key), aspect=CONFIG["aspect"])
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    dataset = SegmentationPatchDataset(
+        data_dir="numpys_2",
+        json_file="data.json",
+        data_list_key="training",
+        patch_size=(32, 256, 256),
+        patch_batch_size=3,
+        num_classes=3,
+        no_pad=True
+    )
+
+    dataloader = DataLoader(dataset, batch_size=1)
+
+    fig, axs = plt.subplots(3, 3, figsize=CONFIG["figsize"])
+    for i, batch in enumerate(dataloader):
+        batch = transform(batch)
+
+        images, targets = batch["image"], batch["label"]
+        print(images.shape)
+
+        for j, (image, label) in enumerate(zip(images, targets)):
+            img_slice = np.take(image.squeeze(), indices=CONFIG["index"], axis=AXIS)
+            seg_slice = np.take(label.squeeze(), indices=CONFIG["index"], axis=AXIS)
+
+            plot_image_label(img_slice, seg_slice, axs[i, j])
+
+    plt.tight_layout()
+    plt.show()
+
+
+if __name__ == '__main__':
+    main()

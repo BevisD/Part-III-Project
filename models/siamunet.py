@@ -1,1 +1,1 @@
-from monai.networks.nets import Un
+from monai.networks.nets import UNet, BasicUNet

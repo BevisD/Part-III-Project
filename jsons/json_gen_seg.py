@@ -21,6 +21,7 @@ def parse_args():
     parser.add_argument("--data-name", default="dataset", help="name of the dataset")
     parser.add_argument("--pre-dir", default="pre_treatment", type=str)
     parser.add_argument("--post-dir", default="post_treatment", type=str)
+    parser.add_argument("--no-pre-post", action="store_true")
     parser.add_argument("--image-dir", default="images", type=str)
     parser.add_argument("--label-dir", default="labels", type=str)
     parser.add_argument("--image-key", default="image", type=str)
@@ -60,14 +61,19 @@ def from_csv(args):
 
 
 def assert_folders(args, data_key="data_dir"):
-    for sub_dir in [args["pre_dir"], args["post_dir"]]:
-        if not os.path.isdir(os.path.join(args[data_key], sub_dir)):
-            raise ValueError(f"No directory called {sub_dir} in {args[data_key]}")
+    if args["no_pre_post"]:
+        for sub_dir in [args["image_dir"], args["label_dir"]]:
+            if not os.path.isdir(os.path.join(args[data_key], sub_dir)):
+                raise ValueError(f"No directory called {sub_dir} in {args[data_key]}")
+    else:
+        for sub_dir in [args["pre_dir"], args["post_dir"]]:
+            if not os.path.isdir(os.path.join(args[data_key], sub_dir)):
+                raise ValueError(f"No directory called {sub_dir} in {args[data_key]}")
 
-        sub_pth = os.path.join(args[data_key], sub_dir)
-        for sub_sub_dir in [args["image_dir"], args["label_dir"]]:
-            if not os.path.isdir(os.path.join(sub_pth, sub_sub_dir)):
-                raise ValueError(f"No directory called {sub_sub_dir} in {sub_pth}")
+            sub_pth = os.path.join(args[data_key], sub_dir)
+            for sub_sub_dir in [args["image_dir"], args["label_dir"]]:
+                if not os.path.isdir(os.path.join(sub_pth, sub_sub_dir)):
+                    raise ValueError(f"No directory called {sub_sub_dir} in {sub_pth}")
 
 
 def pair_up_files(images: list[str], labels: list[str],
@@ -95,7 +101,7 @@ def pair_up_files(images: list[str], labels: list[str],
     return pairs
 
 
-def from_dir(args, data_key="data_dir"):
+def from_pre_post_dir(args, data_key="data_dir"):
     pre_images = glob.glob(os.path.join(args["pre_dir"], args["image_dir"], f"*{args['file_extension']}"),
                            root_dir=args[data_key], recursive=True)
     pre_labels = glob.glob(os.path.join(args["pre_dir"], args["label_dir"], f"*{args['file_extension']}"),
@@ -121,12 +127,31 @@ def from_dir(args, data_key="data_dir"):
     return pre_list + post_list
 
 
+def from_dir(args, data_key="data_dir"):
+    images = glob.glob(os.path.join(args["image_dir"], f"*{args['file_extension']}"),
+                       root_dir=args[data_key], recursive=True)
+    labels = glob.glob(os.path.join(args["label_dir"], f"*{args['file_extension']}"),
+                       root_dir=args[data_key], recursive=True)
+
+    pair_list = pair_up_files(images, labels, image_key=args["image_key"], label_key=args["label_key"])
+
+    if len(pair_list) != len(images):
+        warnings.warn(f"Missing labels for {len(images) - len(pair_list)} pre case(s)")
+    if len(pair_list) != len(labels):
+        warnings.warn(f"Missing images for {len(labels) - len(pair_list)} pre case(s)")
+
+    return pair_list
+
+
 def main(args):
     assert_folders(args)
 
     if args["csv_file"] is None:
         print("Creating JSON from folder search")
-        data = from_dir(args)
+        if args["no_pre_post"]:
+            data = from_dir(args)
+        else:
+            data = from_pre_post_dir(args)
     else:
         print(f"Creating JSON from {args['csv_file']}")
         data = from_csv(args)

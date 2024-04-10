@@ -20,14 +20,17 @@ parser.add_argument("--in-channels", type=int, default=1)
 parser.add_argument("--out-channels", type=int, default=2)
 parser.add_argument("--feature-size", type=int, default=48)
 parser.add_argument("--load-checkpoint", action="store_true")
+parser.add_argument("--overwrite-scheduler", action="store_true")
 
 # Training Hyperparameters
+parser.add_argument("--optimizer", type=str, default="adamw")
 parser.add_argument("--drop-rate", type=float, default=0.0)
 parser.add_argument("--attn-drop-rate", type=float, default=0.0)
 parser.add_argument("--path-drop-rate", type=float, default=0.0)
 parser.add_argument("--grad-checkpoint", action="store_true")
-parser.add_argument("--square-pred", action="store_true")
 parser.add_argument("--learning-rate", type=float, default=1e-4)
+parser.add_argument("--warmup-start-lr", type=float, default=0.0)
+parser.add_argument("--end-learning-rate", type=float, default=0.0)
 parser.add_argument("--weight-decay", type=float, default=1e-5)
 parser.add_argument("--momentum", type=float, default=0.99)
 parser.add_argument("--max-epochs", type=int, required=True)
@@ -47,7 +50,7 @@ parser.add_argument("--grad-scaler", action="store_true")
 parser.add_argument("--data-dir", type=str, required=True)
 parser.add_argument("--json-file", type=str, required=True)
 parser.add_argument("--log-dir", type=str, required=True)
-parser.add_argument("--pretrained-path", type=str, required=True)
+parser.add_argument("--pretrained-path", type=str)
 parser.add_argument("--use-ssl-pretrained", action="store_true")
 
 
@@ -78,39 +81,41 @@ def main(args) -> None:
         dropout_path_rate=args.path_drop_rate,
         use_checkpoint=args.grad_checkpoint
     )
-    weights = torch.load(args.pretrained_path)
+
     optim_weights = None
     sched_weights = None
-
-    if args.use_ssl_pretrained:
-        # Use self supervised weights (SwinViT weights only)
-        if args.load_checkpoint:
-            warnings.warn("Using SSL pretrained: --load-checkpoint ignored")
+    if args.pretrained_path:
+        weights = torch.load(args.pretrained_path)
+        if args.use_ssl_pretrained:
+            # Use self supervised weights (SwinViT weights only)
+            if args.load_checkpoint:
+                warnings.warn("Using SSL pretrained: --load-checkpoint ignored")
+            else:
+                print("Using SSL pretrained")
+            model.load_from(weights)
         else:
-            print("Using SSL pretrained")
-        model.load_from(weights)
-    else:
-        # Use saved weight dict (SwinUNETR weights only)
-        model.load_state_dict(weights["state_dict"])
+            # Use saved weight dict (SwinUNETR weights only)
+            model.load_state_dict(weights["state_dict"])
 
-        if args.load_checkpoint:
-            if "epoch" in weights:
-                trainer.start_epoch = weights["epoch"]
-            if "best_acc" in weights:
-                trainer.best_val_acc = weights["best_acc"]
-            print(f"Resuming training from epoch {trainer.start_epoch} best-acc {trainer.best_val_acc:.5f}")
-            if "optimizer" in weights:
-                optim_weights = weights["optimizer"]
-            if "scheduler" in weights:
-                sched_weights = weights["scheduler"]
+            if args.load_checkpoint:
+                if "epoch" in weights:
+                    trainer.start_epoch = weights["epoch"]
+                if "best_acc" in weights:
+                    trainer.best_val_acc = weights["best_acc"]
+                print(f"Resuming training from epoch {trainer.start_epoch} best-acc {trainer.best_val_acc:.5f}")
+                if "optimizer" in weights:
+                    optim_weights = weights["optimizer"]
+                if "scheduler" in weights:
+                    sched_weights = weights["scheduler"]
 
     # Datasets
     train_dataset = SegmentationPatchDataset(
         data_dir=args.data_dir,
         json_file=args.json_file,
-        data_list_key=["training", "test"],
+        data_list_key="training",
         patch_size=(args.roi_size_x, args.roi_size_y, args.roi_size_z),
         patch_batch_size=args.sw_batch_size,
+        num_classes=args.out_channels,
         transform=intensity_aug,  # Only intensity as affine augmentation done on batch in train loop
         no_pad=True  # No padding needed as patch smaller than image (slight performance increase)
     )
@@ -143,7 +148,10 @@ def main(args) -> None:
     trainer.loss_func = DiceCELoss(include_background=True, to_onehot_y=True, softmax=True)
 
     # Metric
-    trainer.acc_func = DiceMetric(include_background=False, get_not_nans=True, num_classes=args.out_channels)
+    trainer.acc_func = DiceMetric(include_background=False,
+                                  get_not_nans=True,
+                                  num_classes=args.out_channels,
+                                  reduction="mean_batch")
 
     # Model Inferer for evaluation
     trainer.model_inferer = SwinInferer(
@@ -160,28 +168,35 @@ def main(args) -> None:
     trainer.model = model
 
     # Optimizer
-    trainer.optimizer = torch.optim.AdamW(model.parameters(),
-                                          lr=args.learning_rate,
-                                          weight_decay=args.weight_decay)
-
-    # trainer.optimizer = torch.optim.SGD(
-    #     model.parameters(),
-    #     lr=args.learning_rate,
-    #     momentum=args.momentum,
-    #     nesterov=True,
-    #     weight_decay=args.weight_decay
-    # )
+    if args.optimizer.lower() == "adamw":
+        print("Using AdamW optimizer")
+        trainer.optimizer = torch.optim.AdamW(model.parameters(),
+                                              lr=args.learning_rate,
+                                              weight_decay=args.weight_decay)
+    elif args.optimizer.lower() == "sgd":
+        print("Using SGD optimizer")
+        trainer.optimizer = torch.optim.SGD(
+            model.parameters(),
+            lr=args.learning_rate,
+            momentum=args.momentum,
+            nesterov=True,
+            weight_decay=args.weight_decay
+        )
+    else:
+        raise ValueError(f"Optimizer {args.optimizer} is not known")
 
     # Scheduler
     # trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     #     trainer.optimizer,
     #     T_max=args.max_epochs,
     # )
+
     trainer.scheduler = LinearWarmupCosineAnnealingLR(
         trainer.optimizer,
         warmup_epochs=args.warmup_epochs,
         max_epochs=args.max_epochs,
-        warmup_start_lr=0.0,
+        warmup_start_lr=args.warmup_start_lr,
+        eta_min=args.end_learning_rate
     )
 
     if optim_weights is not None:
@@ -189,8 +204,11 @@ def main(args) -> None:
         print(f"Loading Optimiser: Learning Rate is {trainer.optimizer.param_groups[0]['lr']}")
 
     if sched_weights is not None:
-        trainer.scheduler.load_state_dict(sched_weights)
-        print(f"Loading Scheduler: Next epoch is {trainer.scheduler.last_epoch + 1}")
+        if not args.overwrite_scheduler:
+            trainer.scheduler.load_state_dict(sched_weights)
+            print(f"Loading Scheduler: Next epoch is {trainer.scheduler.last_epoch}")
+        else:
+            print(f"Not Loading Scheduler Checkpoint")
 
     trainer.train()
 
