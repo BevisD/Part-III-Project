@@ -37,7 +37,7 @@ class SegmentationDataset(Dataset):
         if isinstance(data_list_key, (list, tuple)):
             for key in data_list_key:
                 if key not in data:
-                    raise ValueError(f"key '{data_list_key}' not in data")
+                    raise ValueError(f"key '{key}' not in data")
                 self.data_list += data[key]
         else:
             self.data_list = data[data_list_key]
@@ -157,6 +157,71 @@ class SegmentationPatchDataset(SegmentationDataset):
         return patch
 
 
+class MultiTaskDataset:
+    def __init__(self, data_dir: str,
+                 json_file: str,
+                 data_list_key: str | Sequence[str],
+                 pre_image_key: str = "pre_image",
+                 post_image_key: str = "post_image",
+                 pre_label_key: str = "pre_label",
+                 post_label_key: str = "post_label",
+                 response_label_key: str = "response",
+                 transform=None,
+                 load_meta: bool = False):
+
+        self.pre_image_key = pre_image_key
+        self.post_image_key = post_image_key
+        self.pre_label_key = pre_label_key
+        self.post_label_key = post_label_key
+        self.response_label_key = response_label_key
+
+        self.data_dir = data_dir
+        self.transform = transform
+        self.load_meta = load_meta
+
+        self.data_list = []
+        json_path = os.path.join(data_dir, json_file)
+        with open(json_path, "r") as fp:
+            data = json.load(fp)
+
+        if isinstance(data_list_key, (list, tuple)):
+            for key in data_list_key:
+                if key not in data:
+                    raise ValueError(f"key '{key}' not in data")
+                self.data_list += data[key]
+        else:
+            if data_list_key not in data:
+                raise ValueError(f"key '{data_list_key}' not in data")
+            self.data_list = data[data_list_key]
+
+    def __len__(self):
+        return len(self.data_list)
+
+    def __getitem__(self, idx):
+        data = self.load_data(idx)
+
+        # TODO - do augmentation here
+
+        return data
+
+    def load_data(self, idx):
+        item = self.data_list[idx]
+        pre_image = np.expand_dims(np.load(item[self.pre_image_key]), axis=0)
+        post_image = np.expand_dims(np.load(item[self.post_image_key]), axis=0)
+        pre_label = np.expand_dims(np.load(item[self.pre_label_key]), axis=0)
+        post_label = np.expand_dims(np.load(item[self.post_label_key]), axis=0)
+
+        data = {
+            self.pre_image_key: pre_image,
+            self.post_image_key: post_image,
+            self.pre_label_key: pre_label,
+            self.post_label_key: post_label,
+            self.response_label_key: item[self.response_label_key]
+        }
+
+        return data
+
+
 def get_intensity_aug(args):
     augmentation_transform = transforms.Compose(
         [
@@ -194,6 +259,9 @@ def get_affine_aug(
         shear_yz=(-0.15, 0.15),
         shear_xy=(-0.10, 0.10),
         shear_xz=(-0.10, 0.10),
+        theta_probs=(0.2, 0.2, 0.2),
+        scale_probs=(0.2, 0.2, 0.2),
+        shear_probs=(0.2, 0.2, 0.2),
 ):
     affine_transform = RandAffineTransformd(
         keys=["image", "label"],
@@ -210,9 +278,13 @@ def get_affine_aug(
                 scale_x],
         shears=[shear_yz,
                 shear_xy,
-                shear_xz]
+                shear_xz],
+        theta_probs=theta_probs,
+        scale_probs=scale_probs,
+        shear_probs=shear_probs,
     )
     return affine_transform
+
 
 def main():
     from monai.data import DataLoader

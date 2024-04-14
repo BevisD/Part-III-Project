@@ -2,7 +2,6 @@ import argparse
 import warnings
 
 import torch
-from monai.networks.nets import SwinUNETR
 from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric
 from monai.data import DataLoader
@@ -10,12 +9,19 @@ from monai.data import DataLoader
 from utils import SwinInferer, SegmentationPatchDataset, SegmentationDataset, get_intensity_aug, get_affine_aug
 from trainer import Trainer
 from optimizers import LinearWarmupCosineAnnealingLR
+from models.anisoswinunetr import AnisoSwinUNETR
 
 parser = argparse.ArgumentParser()
 # Model Architecture
 parser.add_argument("--roi-size-x", type=int, default=32)
 parser.add_argument("--roi-size-y", type=int, default=256)
 parser.add_argument("--roi-size-z", type=int, default=256)
+parser.add_argument("--patch-size-x", type=int, default=2)
+parser.add_argument("--patch-size-y", type=int, default=2)
+parser.add_argument("--patch-size-z", type=int, default=2)
+parser.add_argument("--window-size-x", type=int, default=7)
+parser.add_argument("--window-size-y", type=int, default=7)
+parser.add_argument("--window-size-z", type=int, default=7)
 parser.add_argument("--in-channels", type=int, default=1)
 parser.add_argument("--out-channels", type=int, default=2)
 parser.add_argument("--feature-size", type=int, default=48)
@@ -39,12 +45,40 @@ parser.add_argument("--batch-size", type=int, default=1)
 parser.add_argument("--sw-batch-size", type=int, default=4)
 parser.add_argument("--val-every", type=int, default=4)
 parser.add_argument("--workers", type=int, default=0)
+parser.add_argument("--grad-scaler", action="store_true")
+
+# Augmentation
 parser.add_argument("--rand-scale-prob", type=float, default=0.15)
 parser.add_argument("--rand-shift-prob", type=float, default=0.15)
 parser.add_argument("--rand-noise-prob", type=float, default=0.15)
 parser.add_argument("--rand-smooth-prob", type=float, default=0.2)
 parser.add_argument("--rand-contrast-prob", type=float, default=0.15)
-parser.add_argument("--grad-scaler", action="store_true")
+parser.add_argument("--rand-flip-x", type=float, default=0.5)
+parser.add_argument("--rand-flip-y", type=float, default=0.5)
+parser.add_argument("--rand-flip-z", type=float, default=0.5)
+parser.add_argument("--rand-rot-range-x", type=float, default=torch.pi)
+parser.add_argument("--rand-rot-range-y", type=float, default=0.1)
+parser.add_argument("--rand-rot-range-z", type=float, default=0.1)
+parser.add_argument("--rand-rot-prob-x", type=float, default=0.2)
+parser.add_argument("--rand-rot-prob-y", type=float, default=0.2)
+parser.add_argument("--rand-rot-prob-z", type=float, default=0.2)
+parser.add_argument("--rand-scale-low-x", type=float, default=0.9)
+parser.add_argument("--rand-scale-low-y", type=float, default=0.7)
+parser.add_argument("--rand-scale-low-z", type=float, default=0.7)
+parser.add_argument("--rand-scale-high-x", type=float, default=1.0)
+parser.add_argument("--rand-scale-high-y", type=float, default=1.1)
+parser.add_argument("--rand-scale-high-z", type=float, default=1.1)
+parser.add_argument("--rand-scale-prob-x", type=float, default=0.2)
+parser.add_argument("--rand-scale-prob-y", type=float, default=0.2)
+parser.add_argument("--rand-scale-prob-z", type=float, default=0.2)
+parser.add_argument("--rand-shear-range-x", type=float, default=0.15)
+parser.add_argument("--rand-shear-range-y", type=float, default=0.10)
+parser.add_argument("--rand-shear-range-z", type=float, default=0.10)
+parser.add_argument("--rand-shear-prob-x", type=float, default=0.20)
+parser.add_argument("--rand-shear-prob-y", type=float, default=0.20)
+parser.add_argument("--rand-shear-prob-z", type=float, default=0.20)
+parser.add_argument("--orient-axes", type=str, default="HWD",
+                    choices=["HWD", "HDW", "DHW", "DWH", "WHD", "WDH"])
 
 # Paths
 parser.add_argument("--data-dir", type=str, required=True)
@@ -60,18 +94,32 @@ def main(args) -> None:
     torch.backends.cudnn.benchmark = True
 
     intensity_aug = get_intensity_aug(args)
-    affine_aug = get_affine_aug()
+    affine_aug = get_affine_aug(
+        flips=(args.rand_flip_x, args.rand_flip_y, args.rand_flip_z),
+        theta_x=(-args.rand_rot_range_x, args.rand_rot_range_x),
+        theta_y=(-args.rand_rot_range_y, args.rand_rot_range_y),
+        theta_z=(-args.rand_rot_range_z, args.rand_rot_range_z),
+        scale_x=(args.rand_scale_low_x, args.rand_scale_high_x),
+        scale_y=(args.rand_scale_low_y, args.rand_scale_high_y),
+        scale_z=(args.rand_scale_low_z, args.rand_scale_high_z),
+        shear_yz=(-args.rand_shear_range_x, args.rand_shear_range_x),
+        shear_xy=(-args.rand_shear_range_y, args.rand_shear_range_y),
+        shear_xz=(-args.rand_shear_range_z, args.rand_shear_range_z),
+        theta_probs=(args.rand_rot_prob_x, args.rand_rot_prob_y, args.rand_rot_prob_z),
+        scale_probs=(args.rand_scale_prob_x, args.rand_scale_prob_y, args.rand_scale_prob_z),
+        shear_probs=(args.rand_shear_prob_x, args.rand_shear_prob_y, args.rand_shear_prob_z),
+    )
 
     trainer = Trainer(
         log_dir=args.log_dir,
         max_epochs=args.max_epochs,
         val_every=args.val_every,
         grad_scale=args.grad_scaler,
-        batch_augmentation=affine_aug
+        batch_augmentation=affine_aug,
     )
 
     # Load model
-    model = SwinUNETR(
+    model = AnisoSwinUNETR(
         img_size=(args.roi_size_x, args.roi_size_y, args.roi_size_z),
         in_channels=args.in_channels,
         out_channels=args.out_channels,
@@ -79,7 +127,9 @@ def main(args) -> None:
         drop_rate=args.drop_rate,
         attn_drop_rate=args.attn_drop_rate,
         dropout_path_rate=args.path_drop_rate,
-        use_checkpoint=args.grad_checkpoint
+        use_checkpoint=args.grad_checkpoint,
+        patch_size=(args.patch_size_x, args.patch_size_y, args.patch_size_z),
+        window_size=(args.window_size_x, args.window_size_y, args.window_size_z)
     )
 
     optim_weights = None
@@ -215,4 +265,5 @@ def main(args) -> None:
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    args.orient_axes = " ".join(args.orient_axes).lower()
     main(args)

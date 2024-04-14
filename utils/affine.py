@@ -1,5 +1,6 @@
 from typing import Sequence
 
+import einops
 import torch
 import torch.nn.functional as F
 import monai.transforms as transforms
@@ -7,6 +8,10 @@ import monai.transforms as transforms
 
 def rand_uniform(low: float, high: float, N=1):
     return low + torch.rand(N) * (high - low)
+
+
+def rand_mask(prob: float, N=1):
+    return torch.rand(N) < prob
 
 
 def identity_affine(dim: int = 3, N: int = 1):
@@ -34,19 +39,29 @@ def rand_flip_affine(probs: Sequence[float] = (0.5, 0.5, 0.5), dim: int = 3, N: 
     return affine
 
 
-def rand_scale_affine(scales: Sequence[Sequence[float]], dim: int = 3, N: int = 1):
+def rand_scale_affine(scales: Sequence[Sequence[float]],
+                      dim: int = 3,
+                      N: int = 1,
+                      probs: Sequence[float] = (0.2, 0.2, 0.2)):
     affine = identity_affine(dim=dim, N=N)
-    for i, s in enumerate(scales):
-        affine[..., i, i] = rand_uniform(*s, N=N)
+    for i, (s, p) in enumerate(zip(scales, probs)):
+        apply_scale_mask = rand_mask(prob=p, N=N)
+        rand_scales = rand_uniform(*s, N=N)
+        rand_scales[apply_scale_mask == 0] = 1
+        affine[..., i, i] = rand_scales
     return affine
 
 
-def rand_shear_affine(shears: Sequence[Sequence[float]], dim: int = 3, N: int = 1):
+def rand_shear_affine(shears: Sequence[Sequence[float]],
+                      dim: int = 3,
+                      N: int = 1,
+                      probs: Sequence[float] = (0.2, 0.2, 0.2)):
     affine = identity_affine(dim=dim, N=N)
-    for i, shear_range in enumerate(shears):
+    for i, (shear_range, p) in enumerate(zip(shears, probs)):
+        apply_shear_mask = rand_mask(prob=p, N=N)
         shear_val = rand_uniform(*shear_range, N=N)
-        affine[..., i, (i + 1) % dim] = shear_val
-        affine[..., (i + 1) % dim, i] = shear_val
+        affine[..., i, (i + 1) % dim] = shear_val * apply_shear_mask
+        affine[..., (i + 1) % dim, i] = shear_val * apply_shear_mask
     return affine
 
 
@@ -74,6 +89,9 @@ class RandAffineTransformd(transforms.MapTransform):
                  axes: Sequence[Sequence[float]] = None,
                  scales: Sequence[Sequence[float]] = None,
                  shears: Sequence[Sequence[float]] = None,
+                 theta_probs: Sequence[float] = (0.2, 0.2, 0.2),
+                 scale_probs: Sequence[float] = (0.2, 0.2, 0.2),
+                 shear_probs: Sequence[float] = (0.2, 0.2, 0.2),
 
                  allow_missing_keys=False) -> None:
         super().__init__(keys=keys, allow_missing_keys=allow_missing_keys)
@@ -81,6 +99,9 @@ class RandAffineTransformd(transforms.MapTransform):
         self.thetas = thetas
         self.scales = scales
         self.shears = shears
+        self.theta_probs = theta_probs
+        self.scale_probs = scale_probs
+        self.shear_probs = shear_probs
         self.mode = [mode] * len(self.keys) if isinstance(mode, str) else mode
         self.axes = axes
         self.device, self.type = ("cuda", torch.half) if torch.cuda.is_available() else ("cpu", torch.float32)
@@ -95,19 +116,20 @@ class RandAffineTransformd(transforms.MapTransform):
 
         # Scale Image
         if self.scales is not None:
-            scale_affine = rand_scale_affine(dim=3, scales=self.scales, N=N)
+            scale_affine = rand_scale_affine(dim=3, scales=self.scales, N=N, probs=self.scale_probs)
             affine = multiply_affines(scale_affine, affine)
 
         # Shear Image
         if self.shears is not None:
-            shear_affine = rand_shear_affine(dim=3, shears=self.shears, N=N)
+            shear_affine = rand_shear_affine(dim=3, shears=self.shears, N=N, probs=self.shear_probs)
             affine = multiply_affines(shear_affine, affine)
 
         # Rotate Image
         if self.thetas is not None:
-            for theta_range, axes in zip(self.thetas, self.axes):
-                theta_affine = rand_rotate_affine(dim=3, theta_range=theta_range, axes=axes, N=N)
-                affine = multiply_affines(theta_affine, affine)
+            for theta_range, axes, prob in zip(self.thetas, self.axes, self.theta_probs):
+                if torch.rand(1) < prob:
+                    theta_affine = rand_rotate_affine(dim=3, theta_range=theta_range, axes=axes, N=N)
+                    affine = multiply_affines(theta_affine, affine)
 
         return affine
 
@@ -124,6 +146,7 @@ class RandAffineTransformd(transforms.MapTransform):
                                            grid,
                                            align_corners=True,
                                            mode=mode)
+
             else:
                 raise ValueError(f"Key '{key}' is not in data")
         return batch

@@ -5,6 +5,7 @@ from monai.networks.nets import SwinUNETR
 from monai.networks.nets.swin_unetr import SwinTransformer, MERGING_MODE
 from monai.utils import deprecated_arg, ensure_tuple_rep, look_up_option
 from torch import nn
+import torch
 
 
 class AnisoSwinUNETR(SwinUNETR):
@@ -232,7 +233,7 @@ class AnisoSwinUNETR(SwinUNETR):
             in_channels=feature_size,
             out_channels=feature_size,
             kernel_size=3,
-            upsample_kernel_size=2,
+            upsample_kernel_size=self.patch_size,
             norm_name=norm_name,
             res_block=True,
         )

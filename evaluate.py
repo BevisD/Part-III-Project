@@ -2,6 +2,7 @@ import argparse
 import csv
 from pathlib import Path
 
+import einops
 import torch
 from torch.cuda.amp import autocast
 from monai.networks.nets import SwinUNETR
@@ -37,6 +38,8 @@ parser.add_argument("--rand-shift-prob", type=float, default=0.15)
 parser.add_argument("--rand-noise-prob", type=float, default=0.15)
 parser.add_argument("--rand-smooth-prob", type=float, default=0.2)
 parser.add_argument("--rand-contrast-prob", type=float, default=0.15)
+parser.add_argument("--orient-axes", type=str, default="HWD",
+                    choices=["HWD", "HDW", "DHW", "DWH", "WHD", "WDH"])
 
 
 def get_intersecting_components(label: torch.Tensor, pred: torch.Tensor):
@@ -120,6 +123,9 @@ def main(args):
             if args.augmentation:
                 batch = affine_aug(batch)
 
+            batch["image"] = einops.rearrange(batch["image"], f"b c h w d -> b c {args.orient_axes}")
+            batch["label"] = einops.rearrange(batch["label"], f"b c h w d -> b c {args.orient_axes}")
+
             data, target, filename = batch["image"], batch["label"], batch["filename"]
             data, target = data.cuda(0), target.cuda(0)
 
@@ -161,4 +167,5 @@ def main(args):
 if __name__ == '__main__':
     args = parser.parse_args()
     args.roi_size = (args.roi_size_x, args.roi_size_y, args.roi_size_z)
+    args.orient_axes = " ".join(args.orient_axes).lower()
     main(args)

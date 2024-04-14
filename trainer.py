@@ -8,6 +8,7 @@ import torch.nn as nn
 from torch.cuda.amp import GradScaler, autocast
 from monai.data import DataLoader
 from tensorboardX import SummaryWriter
+import einops
 
 
 @dataclass
@@ -30,6 +31,7 @@ class Trainer:
     epoch = start_epoch
     grad_scale: bool = False
     batch_augmentation: callable = None
+    orient_axes: str = "h w d"
 
     def __post_init__(self):
         self.writer = SummaryWriter(log_dir=self.log_dir)
@@ -139,6 +141,8 @@ class Trainer:
             if self.batch_augmentation is not None:
                 batch = self.batch_augmentation(batch)
 
+            batch = self.rearrange_axes(batch)
+
             data, target = batch["image"], batch["label"]
             data, target = data.cuda(0), target.cuda(0)
 
@@ -196,6 +200,8 @@ class Trainer:
         total_not_nans = torch.zeros(1)
         with torch.no_grad():
             for index, batch in enumerate(self.val_loader):
+                batch = self.rearrange_axes(batch)
+
                 data, target = batch["image"], batch["label"]
                 data, target = data.cuda(0), target.cuda(0)  # 1 1 H W D (Image Size)
                 with autocast(dtype=torch.bfloat16):
@@ -261,3 +267,9 @@ class Trainer:
 
         self.logger.error(f"Epoch: {self.epoch}, Batch: {batch_num}, {msg} is {non_finite.tolist()}")
         return False
+
+    def rearrange_axes(self, batch):
+        batch["image"] = einops.rearrange(batch["image"], f"b c h w d -> b c {self.orient_axes}")
+        batch["label"] = einops.rearrange(batch["label"], f"b c h w d -> b c {self.orient_axes}")
+
+        return batch
