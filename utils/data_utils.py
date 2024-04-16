@@ -11,6 +11,7 @@ from .affine import RandAffineTransformd
 
 __all__ = ["SegmentationDataset",
            "SegmentationPatchDataset",
+           "MultiTaskDataset",
            "get_intensity_aug",
            "get_affine_aug"]
 
@@ -157,7 +158,7 @@ class SegmentationPatchDataset(SegmentationDataset):
         return patch
 
 
-class MultiTaskDataset:
+class MultiTaskDataset(Dataset):
     def __init__(self, data_dir: str,
                  json_file: str,
                  data_list_key: str | Sequence[str],

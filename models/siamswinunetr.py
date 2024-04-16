@@ -1,8 +1,11 @@
+from typing import Sequence
+from functools import partial
+
 import torch
 import torch.nn as nn
 from torch.nn import AdaptiveAvgPool3d, Conv3d, Linear, Sigmoid, LeakyReLU, Sequential
 from monai.networks.nets import SwinUNETR
-from typing import Sequence
+from monai.inferers import sliding_window_inference
 
 
 class SiamSwinUNETR(nn.Module):
@@ -66,8 +69,22 @@ class SiamSwinUNETR(nn.Module):
             linear_activation
         )
 
+        self.inferer = partial(
+            sliding_window_inference,
+            roi_size=self.img_size,
+            sw_batch_size=self.sw_batch_size,
+            predictor=self.forward_patch,
+            overlap=self.overlap,
+        )
+        
     def forward(self, x):
-        img_1, img_2 = x  # B 1 H W D
+        (seg_1, seg_2), features = self.inferer(x)
+        response = self.response_head(features)
+        return (seg_1, seg_2), response
+
+    def forward_patch(self, x):
+        img_1 = x[:, 0:1, ...]
+        img_2 = x[:, 1:2, ...]
 
         seg_1, (feat1_1, feat1_2, feat1_3) = self.swin_unetr(img_1)
         seg_2, (feat2_1, feat2_2, feat2_3) = self.swin_unetr(img_2)
@@ -112,8 +129,8 @@ class CachedSwinUNETR(SwinUNETR):
 
         return_layers = [
             hidden_states_out[2],  # B 192 H/8 W/8 D/8
-            dec4,                  # B 768 H/32 W/32 D/32
-            dec2                   # B 192 H/8 W/8 D/8
+            dec4,  # B 768 H/32 W/32 D/32
+            dec2  # B 192 H/8 W/8 D/8
         ]
         return logits, return_layers
 

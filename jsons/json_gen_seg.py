@@ -144,9 +144,9 @@ def from_dir(args, data_key="data_dir"):
 
 
 def main(args):
-    assert_folders(args)
 
     if args["csv_file"] is None:
+        assert_folders(args)
         print("Creating JSON from folder search")
         if args["no_pre_post"]:
             data = from_dir(args)
